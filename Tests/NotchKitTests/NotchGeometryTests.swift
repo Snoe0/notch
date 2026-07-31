@@ -44,14 +44,30 @@ private let mbp14 = ScreenMetrics(
     #expect(geometry.panelFrame.maxY == 982)
 }
 
-@Test func collapsedHoverRectAddsSlopBelowButNeverAboveTheScreen() throws {
+/// Originally this asserted the hover rect stopped at the screen top. That was
+/// wrong in use: `CGRect.contains` excludes `maxY`, so shoving the cursor into
+/// the top edge read as *outside* and closed the panel just as the user was
+/// reaching for it. The rect now overshoots above the screen.
+@Test func collapsedHoverRectOvershootsTheScreenTopSoTheEdgeStillCounts() throws {
     let geometry = try #require(NotchGeometry(metrics: mbp14))
     let hover = geometry.collapsedHoverRect
 
-    #expect(hover.maxY == 982)
+    #expect(hover.maxY > 982)
+    #expect(hover.contains(CGPoint(x: 756, y: 982)))   // the exact top edge
     #expect(hover.minY == geometry.notchRect.minY - NotchGeometry.hoverSlop)
     #expect(hover.contains(CGPoint(x: 756, y: 948)))   // just under the notch
     #expect(!hover.contains(CGPoint(x: 100, y: 975)))  // menu bar, far left
+}
+
+@Test func openHoverRectCoversThePanelAndTheTopEdge() throws {
+    let geometry = try #require(NotchGeometry(metrics: mbp14))
+    let hover = geometry.openHoverRect
+
+    #expect(hover.contains(CGPoint(x: 756, y: 982)))   // the exact top edge
+    #expect(hover.minY == geometry.panelFrame.minY)    // no taller at the bottom
+    #expect(hover.width == geometry.panelFrame.width)
+    #expect(hover.contains(CGPoint(x: 756, y: 800)))   // deep inside the panel
+    #expect(!hover.contains(CGPoint(x: 756, y: 700)))  // below the panel
 }
 
 @Test func geometryRespectsANonZeroScreenOrigin() throws {

@@ -30,7 +30,7 @@ public final class NotchController {
             content: NotchRoot(
                 machine: machine,
                 store: store,
-                notchWidth: geometry.notchRect.width
+                notchSize: geometry.notchRect.size
             )
         )
         panel.setInteractive(false)
@@ -60,7 +60,7 @@ public final class NotchController {
     /// directly — and it guarantees a collapsed panel can swallow nothing.
     private func apply(_ state: NotchState) {
         guard let geometry, let panel else { return }
-        hover.activeRect = state.isOpen ? geometry.panelFrame : geometry.collapsedHoverRect
+        hover.activeRect = state.isOpen ? geometry.openHoverRect : geometry.collapsedHoverRect
         panel.setInteractive(state.isOpen)
 
         switch state {
@@ -91,7 +91,7 @@ public final class NotchController {
 
     private func handleClick() {
         guard let geometry else { return }
-        if geometry.panelFrame.contains(NSEvent.mouseLocation) {
+        if geometry.openHoverRect.contains(NSEvent.mouseLocation) {
             machine.click()
         } else {
             machine.dismiss()
@@ -162,10 +162,10 @@ public final class NotchController {
 private struct NotchRoot: View {
     @ObservedObject var machine: NotchStateMachine
     @ObservedObject var store: ScratchpadStore
-    let notchWidth: CGFloat
+    let notchSize: CGSize
 
     var body: some View {
-        NotchChrome(state: machine.state, notchWidth: notchWidth) {
+        NotchChrome(state: machine.state, notchSize: notchSize) {
             ScratchpadView(store: store, isPinned: machine.state == .pinned)
         }
     }

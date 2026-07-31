@@ -70,15 +70,35 @@ public struct NotchGeometry: Equatable, Sendable {
         )
     }
 
+    /// How far the hover regions extend above the top of the screen.
+    ///
+    /// `CGRect.contains` excludes its own `maxY`, so a rect ending exactly at
+    /// the screen top reports the cursor as *outside* when the user shoves it
+    /// into the top edge — which closed the panel at the very moment the user
+    /// was reaching for it. Nothing exists above the screen, so overshooting
+    /// is free.
+    public static let topOvershoot: CGFloat = 40
+
     /// The region that counts as hovering while the panel is closed.
-    /// Grows sideways and downward only — never above the screen edge.
     public var collapsedHoverRect: CGRect {
         let slop = Self.hoverSlop
         return CGRect(
             x: notchRect.minX - slop,
             y: notchRect.minY - slop,
             width: notchRect.width + slop * 2,
-            height: notchRect.height + slop
+            height: notchRect.height + slop + Self.topOvershoot
+        )
+    }
+
+    /// The region that counts as hovering while the panel is open. Matches the
+    /// panel, so moving down into it does not close it, and overshoots the top
+    /// for the same reason `collapsedHoverRect` does.
+    public var openHoverRect: CGRect {
+        CGRect(
+            x: panelFrame.minX,
+            y: panelFrame.minY,
+            width: panelFrame.width,
+            height: panelFrame.height + Self.topOvershoot
         )
     }
 }

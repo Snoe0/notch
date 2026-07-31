@@ -5,18 +5,18 @@ import SwiftUI
 /// shelf would drop into the same place without touching anything else.
 public struct NotchChrome<Content: View>: View {
     private let state: NotchState
-    private let notchWidth: CGFloat
+    private let notchSize: CGSize
     private let content: () -> Content
 
     private static var cornerRadius: CGFloat { 22 }
 
     public init(
         state: NotchState,
-        notchWidth: CGFloat,
+        notchSize: CGSize,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.state = state
-        self.notchWidth = notchWidth
+        self.notchSize = notchSize
         self.content = content
     }
 
@@ -36,8 +36,12 @@ public struct NotchChrome<Content: View>: View {
 
     private var surface: some View {
         content()
+            // The panel's top edge sits under the physical notch, so the first
+            // notch-height of the surface is not visible. Reserving it here
+            // means every module in the slot clears the notch automatically.
+            .padding(.top, notchSize.height)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(minWidth: notchWidth)
+            .frame(minWidth: notchSize.width)
             .background(.black)
             // Square at the top so the panel merges into the notch and the
             // screen edge; rounded at the bottom so it reads as a lozenge.

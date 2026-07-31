@@ -75,8 +75,17 @@ with the menu bar.
 Because the panel ignores mouse events while collapsed, it cannot detect its own
 hover. Hover comes from `NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved)`.
 
-Global monitoring of **mouse** events requires no Accessibility permission. Only
-keyboard monitoring does. The app therefore requests no permissions at all.
+**Correction (found in testing).** This spec originally claimed global mouse
+monitoring needs no permission, because historically only keyboard monitoring
+did. That is false on macOS 15.4+: `kTCCServiceListenEvent` (Input Monitoring)
+gates *all* global event monitoring. Denying it leaves the hover monitor with no
+events and the panel never opens.
+
+The permission-free replacement is `NSTrackingArea` on windows the app owns — a
+catcher window sized to the notch while collapsed, the panel's own tracking area
+while open — with click-outside dismissal from
+`NSWindow.didResignKeyNotification` rather than a global click monitor. Not yet
+implemented.
 
 The monitor answers one question: is the cursor inside the current *active rect*?
 

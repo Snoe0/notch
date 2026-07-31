@@ -24,8 +24,27 @@ The app has no Dock icon. It lives in the menu bar.
 - Escape or a click elsewhere closes it
 - Menu bar → Reveal Notes in Finder opens the notes folder
 
-Nothing prompts for permissions. Hover detection uses mouse-event monitoring,
-which — unlike keyboard monitoring — needs no Accessibility grant.
+## Permissions
+
+On first launch macOS asks for **Input Monitoring**. Hover detection currently
+uses `NSEvent.addGlobalMonitorForEvents`, and on macOS 15.4+ *all* global event
+monitoring is gated behind `kTCCServiceListenEvent` — not just keyboard
+monitoring, as was the case historically. Deny it and the panel never opens,
+because the hover monitor receives no events.
+
+Grant it under System Settings → Privacy & Security → Input Monitoring. macOS
+does not re-prompt after a denial; to get the prompt back:
+
+```bash
+tccutil reset ListenEvent com.yurikorolev.Notch
+```
+
+This is heavier than a notes app should require. The permission-free
+alternative is `NSTrackingArea` on windows the app already owns — a small
+catcher window over the notch while collapsed, and the panel's own tracking
+area while open — with click-outside dismissal driven by
+`NSWindow.didResignKeyNotification` instead of a global click monitor. That
+rework is not done yet.
 
 ## How it works
 
