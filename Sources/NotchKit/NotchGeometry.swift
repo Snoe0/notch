@@ -48,11 +48,14 @@ public struct NotchGeometry: Equatable, Sendable {
               notchWidth > 0
         else { return nil }
 
-        let centerX = metrics.frame.midX
         let top = metrics.frame.maxY
 
+        // Derive the notch from where the auxiliary areas actually end, rather
+        // than assuming it is centred. On real hardware the two areas are not
+        // symmetric — a measured 14" reports 665 left and 662 right — so
+        // centring on the screen puts the notch 1.5pt off its true position.
         notchRect = CGRect(
-            x: centerX - notchWidth / 2,
+            x: metrics.frame.minX + metrics.auxiliaryTopLeftWidth,
             y: top - metrics.topInset,
             width: notchWidth,
             height: metrics.topInset
@@ -60,7 +63,7 @@ public struct NotchGeometry: Equatable, Sendable {
 
         let size = Self.expandedSize
         panelFrame = CGRect(
-            x: centerX - size.width / 2,
+            x: notchRect.midX - size.width / 2,
             y: top - size.height,
             width: size.width,
             height: size.height

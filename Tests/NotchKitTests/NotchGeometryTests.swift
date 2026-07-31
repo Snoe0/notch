@@ -66,3 +66,22 @@ private let mbp14 = ScreenMetrics(
     #expect(geometry.notchRect.maxY == 1282)
     #expect(geometry.panelFrame.maxY == 1282)
 }
+
+/// Regression: real hardware does not report symmetric auxiliary areas.
+/// These are the measured values from a 14" MacBook Pro. Centring the notch on
+/// the screen instead of on the auxiliary boundaries put it 1.5pt off.
+@Test func notchFollowsAsymmetricAuxiliaryAreas() throws {
+    let measured = ScreenMetrics(
+        frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+        topInset: 32,
+        auxiliaryTopLeftWidth: 665,
+        auxiliaryTopRightWidth: 662
+    )
+    let geometry = try #require(NotchGeometry(metrics: measured))
+
+    #expect(geometry.notchRect.minX == 665)          // where the left area ends
+    #expect(geometry.notchRect.maxX == 850)          // where the right area starts
+    #expect(geometry.notchRect.width == 185)
+    #expect(geometry.notchRect.midX != measured.frame.midX)   // genuinely off-centre
+    #expect(geometry.panelFrame.midX == geometry.notchRect.midX)
+}
