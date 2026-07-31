@@ -44,30 +44,29 @@ private let mbp14 = ScreenMetrics(
     #expect(geometry.panelFrame.maxY == 982)
 }
 
-/// Originally this asserted the hover rect stopped at the screen top. That was
-/// wrong in use: `CGRect.contains` excludes `maxY`, so shoving the cursor into
-/// the top edge read as *outside* and closed the panel just as the user was
-/// reaching for it. The rect now overshoots above the screen.
-@Test func collapsedHoverRectOvershootsTheScreenTopSoTheEdgeStillCounts() throws {
+/// The catcher must overshoot the screen top: the cursor clamps at the edge,
+/// and a region stopping exactly at 982 could miss it — which used to close the
+/// panel just as the user reached for it.
+@Test func catcherFrameOvershootsTheScreenTop() throws {
     let geometry = try #require(NotchGeometry(metrics: mbp14))
-    let hover = geometry.collapsedHoverRect
+    let catcher = geometry.catcherFrame
 
-    #expect(hover.maxY > 982)
-    #expect(hover.contains(CGPoint(x: 756, y: 982)))   // the exact top edge
-    #expect(hover.minY == geometry.notchRect.minY - NotchGeometry.hoverSlop)
-    #expect(hover.contains(CGPoint(x: 756, y: 948)))   // just under the notch
-    #expect(!hover.contains(CGPoint(x: 100, y: 975)))  // menu bar, far left
+    #expect(catcher.maxY > 982)
+    #expect(catcher.contains(CGPoint(x: 756, y: 982)))   // the exact top edge
+    #expect(catcher.minY == geometry.notchRect.minY)
 }
 
-@Test func openHoverRectCoversThePanelAndTheTopEdge() throws {
+/// The catcher accepts mouse events so its tracking area can fire, so it must
+/// not extend past the notch horizontally — anything wider would swallow
+/// clicks meant for menu bar items sitting beside the notch.
+@Test func catcherFrameIsExactlyNotchWideSoItCannotClipTheMenuBar() throws {
     let geometry = try #require(NotchGeometry(metrics: mbp14))
-    let hover = geometry.openHoverRect
+    let catcher = geometry.catcherFrame
 
-    #expect(hover.contains(CGPoint(x: 756, y: 982)))   // the exact top edge
-    #expect(hover.minY == geometry.panelFrame.minY)    // no taller at the bottom
-    #expect(hover.width == geometry.panelFrame.width)
-    #expect(hover.contains(CGPoint(x: 756, y: 800)))   // deep inside the panel
-    #expect(!hover.contains(CGPoint(x: 756, y: 700)))  // below the panel
+    #expect(catcher.minX == geometry.notchRect.minX)
+    #expect(catcher.maxX == geometry.notchRect.maxX)
+    #expect(!catcher.contains(CGPoint(x: geometry.notchRect.minX - 1, y: 970)))
+    #expect(!catcher.contains(CGPoint(x: geometry.notchRect.maxX + 1, y: 970)))
 }
 
 @Test func geometryRespectsANonZeroScreenOrigin() throws {

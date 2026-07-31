@@ -28,10 +28,6 @@ public struct NotchGeometry: Equatable, Sendable {
     /// inside it animates instead.
     public static let expandedSize = CGSize(width: 620, height: 200)
 
-    /// Extra margin around the notch that still counts as "hovering", so the
-    /// cursor does not have to land pixel-perfectly inside it.
-    public static let hoverSlop: CGFloat = 4
-
     public let notchRect: CGRect
     public let panelFrame: CGRect
 
@@ -75,30 +71,29 @@ public struct NotchGeometry: Equatable, Sendable {
     /// `CGRect.contains` excludes its own `maxY`, so a rect ending exactly at
     /// the screen top reports the cursor as *outside* when the user shoves it
     /// into the top edge — which closed the panel at the very moment the user
-    /// was reaching for it. Nothing exists above the screen, so overshooting
-    /// is free.
+    /// was reaching for it. The cursor also clamps at the screen edge, so
+    /// without this overshoot, shoving the cursor into the top edge could land
+    /// outside the tracked region entirely. Nothing exists above the screen,
+    /// so overshooting is free.
     public static let topOvershoot: CGFloat = 40
 
-    /// The region that counts as hovering while the panel is closed.
-    public var collapsedHoverRect: CGRect {
-        let slop = Self.hoverSlop
-        return CGRect(
-            x: notchRect.minX - slop,
-            y: notchRect.minY - slop,
-            width: notchRect.width + slop * 2,
-            height: notchRect.height + slop + Self.topOvershoot
-        )
-    }
-
-    /// The region that counts as hovering while the panel is open. Matches the
-    /// panel, so moving down into it does not close it, and overshoots the top
-    /// for the same reason `collapsedHoverRect` does.
-    public var openHoverRect: CGRect {
+    /// The always-present hover catcher: exactly the notch, extended above the
+    /// screen top.
+    ///
+    /// Exactly notch-width on purpose — lateral slop would make the notch
+    /// easier to hit but would clip menu bar items sitting beside it, because
+    /// the catcher has to accept mouse events for its tracking area to fire.
+    ///
+    /// The upward extension exists because `CGRect.contains` excludes `maxY`
+    /// and, more importantly, because the cursor clamps at the screen edge:
+    /// without it, shoving the cursor into the top edge could land outside the
+    /// tracked region and close the panel just as the user reached for it.
+    public var catcherFrame: CGRect {
         CGRect(
-            x: panelFrame.minX,
-            y: panelFrame.minY,
-            width: panelFrame.width,
-            height: panelFrame.height + Self.topOvershoot
+            x: notchRect.minX,
+            y: notchRect.minY,
+            width: notchRect.width,
+            height: notchRect.height + Self.topOvershoot
         )
     }
 }

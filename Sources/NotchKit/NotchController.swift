@@ -6,12 +6,13 @@ import Combine
 @MainActor
 public final class NotchController {
     private var geometry: NotchGeometry?
-    private let hover = HoverMonitor()
+    private var catcher: HoverCatcherPanel?
+    private var catcherInside = false
+    private var panelInside = false
     private let machine = NotchStateMachine()
     private let store = ScratchpadStore(directory: ScratchpadStore.defaultDirectory)
     private var panel: NotchPanel?
     private var cancellables = Set<AnyCancellable>()
-    private var clickMonitor: Any?
     private var localClickMonitor: Any?
     private var escapeMonitor: Any?
 
@@ -31,36 +32,46 @@ public final class NotchController {
                 machine: machine,
                 store: store,
                 notchSize: geometry.notchRect.size
-            )
+            ),
+            onHover: { [weak self] inside in
+                self?.panelInside = inside
+                self?.updateHover()
+            }
         )
         panel.setInteractive(false)
         panel.orderFrontRegardless()
         self.panel = panel
 
-        hover.activeRect = geometry.collapsedHoverRect
-        hover.onChange = { [weak self] inside in
-            self?.machine.hoverChanged(inside: inside)
+        let catcher = HoverCatcherPanel(frame: geometry.catcherFrame) { [weak self] inside in
+            self?.catcherInside = inside
+            self?.updateHover()
         }
-        hover.start()
+        catcher.orderFrontRegardless()
+        self.catcher = catcher
 
         machine.$state
             .sink { [weak self] state in self?.apply(state) }
             .store(in: &cancellables)
 
         watchForClicks()
+        watchForKeyLoss()
         watchForEscape()
         watchForScreenChanges()
     }
 
-    /// The panel accepts the mouse only while open, and the hover region grows
-    /// to the whole panel so moving down into it does not close it.
+    /// The cursor counts as hovering if it is over the notch or anywhere in the
+    /// open panel. Two tracked windows, one answer.
+    private func updateHover() {
+        machine.hoverChanged(inside: catcherInside || panelInside)
+    }
+
+    /// The panel accepts the mouse only while open.
     ///
     /// Collapsing orders the panel out rather than merely hiding its content.
     /// That is what releases key status — `resignKey()` must never be called
     /// directly — and it guarantees a collapsed panel can swallow nothing.
     private func apply(_ state: NotchState) {
-        guard let geometry, let panel else { return }
-        hover.activeRect = state.isOpen ? geometry.openHoverRect : geometry.collapsedHoverRect
+        guard let panel else { return }
         panel.setInteractive(state.isOpen)
 
         switch state {
@@ -72,29 +83,34 @@ public final class NotchController {
         flushOnClose(state)
     }
 
-    /// A click inside the open panel pins it; a click anywhere else dismisses it.
-    ///
-    /// Both monitors are needed. The global one never fires for events routed
-    /// to our own app, so once the panel accepts the mouse only the local one
-    /// sees clicks landing on it.
+    /// A click in one of our own windows pins the panel. A local monitor is
+    /// enough and, unlike the global variant, needs no Input Monitoring grant.
     private func watchForClicks() {
-        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown]
-
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
-            MainActor.assumeIsolated { self?.handleClick() }
-        }
-        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
-            MainActor.assumeIsolated { self?.handleClick() }
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if event.window === self.panel || event.window === self.catcher {
+                    self.machine.click()
+                }
+            }
             return event
         }
     }
 
-    private func handleClick() {
-        guard let geometry else { return }
-        if geometry.openHoverRect.contains(NSEvent.mouseLocation) {
-            machine.click()
-        } else {
-            machine.dismiss()
+    /// Clicking another app makes the pinned panel resign key, which is how
+    /// click-outside dismissal works without watching other apps' events.
+    private func watchForKeyLoss() {
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.machine.state == .pinned else { return }
+                self.machine.dismiss()
+            }
         }
     }
 
@@ -141,9 +157,12 @@ public final class NotchController {
 
                 guard let geometry = self.geometry else {
                     self.panel?.orderOut(nil)
+                    self.catcher?.orderOut(nil)
                     return
                 }
                 self.panel?.setFrame(geometry.panelFrame, display: true)
+                self.catcher?.setFrame(geometry.catcherFrame, display: true)
+                self.catcher?.orderFrontRegardless()
                 self.apply(self.machine.state)
             }
         }
