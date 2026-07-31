@@ -6,9 +6,7 @@ import Combine
 @MainActor
 public final class NotchController {
     private var geometry: NotchGeometry?
-    private var catcher: HoverCatcherPanel?
-    private var catcherInside = false
-    private var panelInside = false
+    private let cursor = CursorWatcher()
     private let machine = NotchStateMachine()
     private let store = ScratchpadStore(directory: ScratchpadStore.defaultDirectory)
     private var panel: NotchPanel?
@@ -32,22 +30,17 @@ public final class NotchController {
                 machine: machine,
                 store: store,
                 notchSize: geometry.notchRect.size
-            ),
-            onHover: { [weak self] inside in
-                self?.panelInside = inside
-                self?.updateHover()
-            }
+            )
         )
         panel.setInteractive(false)
         panel.orderFrontRegardless()
         self.panel = panel
 
-        let catcher = HoverCatcherPanel(frame: geometry.catcherFrame) { [weak self] inside in
-            self?.catcherInside = inside
-            self?.updateHover()
+        cursor.activeRect = geometry.collapsedHoverRect
+        cursor.onChange = { [weak self] inside in
+            self?.machine.hoverChanged(inside: inside)
         }
-        catcher.orderFrontRegardless()
-        self.catcher = catcher
+        cursor.start()
 
         machine.$state
             .sink { [weak self] state in self?.apply(state) }
@@ -59,19 +52,15 @@ public final class NotchController {
         watchForScreenChanges()
     }
 
-    /// The cursor counts as hovering if it is over the notch or anywhere in the
-    /// open panel. Two tracked windows, one answer.
-    private func updateHover() {
-        machine.hoverChanged(inside: catcherInside || panelInside)
-    }
-
-    /// The panel accepts the mouse only while open.
+    /// The panel accepts the mouse only while open, and the watched region
+    /// grows to the whole panel so moving down into it does not close it.
     ///
     /// Collapsing orders the panel out rather than merely hiding its content.
     /// That is what releases key status — `resignKey()` must never be called
     /// directly — and it guarantees a collapsed panel can swallow nothing.
     private func apply(_ state: NotchState) {
-        guard let panel else { return }
+        guard let geometry, let panel else { return }
+        cursor.activeRect = state.isOpen ? geometry.openHoverRect : geometry.collapsedHoverRect
         panel.setInteractive(state.isOpen)
 
         switch state {
@@ -91,7 +80,7 @@ public final class NotchController {
         ) { [weak self] event in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if event.window === self.panel || event.window === self.catcher {
+                if event.window === self.panel {
                     self.machine.click()
                 }
             }
@@ -157,12 +146,10 @@ public final class NotchController {
 
                 guard let geometry = self.geometry else {
                     self.panel?.orderOut(nil)
-                    self.catcher?.orderOut(nil)
+                    self.cursor.stop()
                     return
                 }
                 self.panel?.setFrame(geometry.panelFrame, display: true)
-                self.catcher?.setFrame(geometry.catcherFrame, display: true)
-                self.catcher?.orderFrontRegardless()
                 self.apply(self.machine.state)
             }
         }

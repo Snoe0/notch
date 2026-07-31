@@ -2,12 +2,10 @@ import AppKit
 import SwiftUI
 
 public final class NotchPanel: NSPanel {
-    private let tracker = TrackingView()
-
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { false }
 
-    public init(frame: CGRect, content: some View, onHover: @escaping (Bool) -> Void) {
+    public init(frame: CGRect, content: some View) {
         super.init(
             contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -24,18 +22,7 @@ public final class NotchPanel: NSPanel {
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
-        tracker.onHover = onHover
-        let host = NSHostingView(rootView: content)
-        host.translatesAutoresizingMaskIntoConstraints = false
-        tracker.addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: tracker.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: tracker.trailingAnchor),
-            host.topAnchor.constraint(equalTo: tracker.topAnchor),
-            host.bottomAnchor.constraint(equalTo: tracker.bottomAnchor),
-        ])
-        contentView = tracker
-
+        contentView = NSHostingView(rootView: content)
         setFrame(frame, display: true)
     }
 

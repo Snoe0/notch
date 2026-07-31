@@ -77,23 +77,35 @@ public struct NotchGeometry: Equatable, Sendable {
     /// so overshooting is free.
     public static let topOvershoot: CGFloat = 40
 
-    /// The always-present hover catcher: exactly the notch, extended above the
-    /// screen top.
+    /// Extra margin around the notch that still counts as "hovering", so the
+    /// cursor does not have to land pixel-perfectly inside it.
     ///
-    /// Exactly notch-width on purpose — lateral slop would make the notch
-    /// easier to hit but would clip menu bar items sitting beside it, because
-    /// the catcher has to accept mouse events for its tracking area to fire.
-    ///
-    /// The upward extension exists because `CGRect.contains` excludes `maxY`
-    /// and, more importantly, because the cursor clamps at the screen edge:
-    /// without it, shoving the cursor into the top edge could land outside the
-    /// tracked region and close the panel just as the user reached for it.
-    public var catcherFrame: CGRect {
+    /// Safe because hover is detected by reading the cursor position, not by
+    /// placing a window here. A window would have to accept mouse events to
+    /// report hover, and would then swallow clicks meant for menu bar items
+    /// sitting beside the notch.
+    public static let hoverSlop: CGFloat = 4
+
+    /// The region that counts as hovering while the panel is closed.
+    public var collapsedHoverRect: CGRect {
+        let slop = Self.hoverSlop
+        return CGRect(
+            x: notchRect.minX - slop,
+            y: notchRect.minY - slop,
+            width: notchRect.width + slop * 2,
+            height: notchRect.height + slop + Self.topOvershoot
+        )
+    }
+
+    /// The region that counts as hovering while the panel is open. Matches the
+    /// panel, so moving down into it does not close it, and overshoots the top
+    /// for the same reason `collapsedHoverRect` does.
+    public var openHoverRect: CGRect {
         CGRect(
-            x: notchRect.minX,
-            y: notchRect.minY,
-            width: notchRect.width,
-            height: notchRect.height + Self.topOvershoot
+            x: panelFrame.minX,
+            y: panelFrame.minY,
+            width: panelFrame.width,
+            height: panelFrame.height + Self.topOvershoot
         )
     }
 }
