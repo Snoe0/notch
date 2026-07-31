@@ -25,7 +25,7 @@ public final class NotchController {
 
         let panel = NotchPanel(
             frame: geometry.panelFrame,
-            content: PlaceholderView(machine: machine)
+            content: NotchRoot(machine: machine, notchWidth: geometry.notchRect.width)
         )
         panel.setInteractive(false)
         panel.orderFrontRegardless()
@@ -89,20 +89,14 @@ public final class NotchController {
     }
 }
 
-private struct PlaceholderView: View {
+/// Bridges the observable state machine into the chrome.
+private struct NotchRoot: View {
     @ObservedObject var machine: NotchStateMachine
+    let notchWidth: CGFloat
 
     var body: some View {
-        VStack(spacing: 0) {
-            if machine.state.isOpen {
-                Rectangle()
-                    .fill(machine.state == .pinned ? .green.opacity(0.6) : .red.opacity(0.6))
-                    .frame(width: 320, height: 120)
-                    .transition(.scale(scale: 0.92, anchor: .top).combined(with: .opacity))
-            }
-            Spacer(minLength: 0)
+        NotchChrome(state: machine.state, notchWidth: notchWidth) {
+            Color.clear
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(.spring(response: 0.32, dampingFraction: 0.78), value: machine.state)
     }
 }
