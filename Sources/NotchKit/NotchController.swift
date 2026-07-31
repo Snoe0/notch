@@ -8,10 +8,12 @@ public final class NotchController {
     private let geometry: NotchGeometry?
     private let hover = HoverMonitor()
     private let machine = NotchStateMachine()
+    private let store = ScratchpadStore(directory: ScratchpadStore.defaultDirectory)
     private var panel: NotchPanel?
     private var cancellables = Set<AnyCancellable>()
     private var clickMonitor: Any?
     private var localClickMonitor: Any?
+    private var escapeMonitor: Any?
 
     public init() {
         geometry = NotchGeometry.forBuiltInScreen()
@@ -25,7 +27,11 @@ public final class NotchController {
 
         let panel = NotchPanel(
             frame: geometry.panelFrame,
-            content: NotchRoot(machine: machine, notchWidth: geometry.notchRect.width)
+            content: NotchRoot(
+                machine: machine,
+                store: store,
+                notchWidth: geometry.notchRect.width
+            )
         )
         panel.setInteractive(false)
         panel.orderFrontRegardless()
@@ -42,6 +48,7 @@ public final class NotchController {
             .store(in: &cancellables)
 
         watchForClicks()
+        watchForEscape()
     }
 
     /// The panel accepts the mouse only while open, and the hover region grows
@@ -60,6 +67,8 @@ public final class NotchController {
         case .peek:      panel.orderFrontRegardless()
         case .pinned:    panel.makeKeyAndOrderFront(nil)
         }
+
+        flushOnClose(state)
     }
 
     /// A click inside the open panel pins it; a click anywhere else dismisses it.
@@ -87,16 +96,37 @@ public final class NotchController {
             machine.dismiss()
         }
     }
+
+    /// Escape closes the panel. A local monitor is enough because the panel is
+    /// key whenever it is pinned, which is the only time Escape should apply.
+    private func watchForEscape() {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return event }   // 53 = Escape
+            let shouldSwallow = MainActor.assumeIsolated { () -> Bool in
+                guard let self, self.machine.state == .pinned else { return false }
+                self.machine.dismiss()
+                return true
+            }
+            return shouldSwallow ? nil : event   // swallow it so the text view never sees Escape
+        }
+    }
+
+    /// Never leave a pending debounced write unwritten when the panel closes.
+    private func flushOnClose(_ state: NotchState) {
+        guard state == .collapsed else { return }
+        Task { await store.flush() }
+    }
 }
 
 /// Bridges the observable state machine into the chrome.
 private struct NotchRoot: View {
     @ObservedObject var machine: NotchStateMachine
+    @ObservedObject var store: ScratchpadStore
     let notchWidth: CGFloat
 
     var body: some View {
         NotchChrome(state: machine.state, notchWidth: notchWidth) {
-            Color.clear
+            ScratchpadView(store: store, isPinned: machine.state == .pinned)
         }
     }
 }
