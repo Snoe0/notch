@@ -1,0 +1,76 @@
+{
+  "planPath": "docs/superpowers/plans/2026-07-31-notch-scratchpad.md",
+  "specPath": "docs/superpowers/specs/2026-07-31-notch-scratchpad-design.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 0: Package scaffold and app bundle",
+      "status": "pending",
+      "description": "**Goal:** A signed, launchable `Notch.app` with no Dock icon and a working menu bar item, built entirely from the terminal.\n\n**Files:**\n- Create: `Package.swift`, `Sources/Notch/NotchApp.swift`, `Sources/NotchKit/NotchKit.swift`, `Tests/NotchKitTests/SmokeTests.swift`, `Resources/Info.plist`, `Scripts/bundle.sh`, `.gitignore`\n\n**Acceptance Criteria:**\n- [ ] `swift build` and `swift test` both succeed\n- [ ] `Scripts/bundle.sh` produces `build/Notch.app`, ad-hoc signed\n- [ ] Launching the app shows a menu bar item and no Dock icon\n- [ ] Quit from the menu bar terminates the app\n\n**Verify:** `swift test` → all tests pass; `./Scripts/bundle.sh && open build/Notch.app` → menu bar item appears, Dock does not\n\n```json:metadata\n{\"files\": [\"Package.swift\", \"Sources/Notch/NotchApp.swift\", \"Sources/NotchKit/NotchKit.swift\", \"Tests/NotchKitTests/SmokeTests.swift\", \"Resources/Info.plist\", \"Scripts/bundle.sh\", \".gitignore\"], \"verifyCommand\": \"swift test && ./Scripts/bundle.sh\", \"acceptanceCriteria\": [\"swift build and swift test succeed\", \"Scripts/bundle.sh produces ad-hoc signed build/Notch.app\", \"app shows a menu bar item and no Dock icon\", \"Quit terminates the app\"], \"modelTier\": \"mechanical\"}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 1: Notch geometry",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Pure, tested math that turns screen metrics into the notch rect, the fixed panel frame, and the collapsed hover rect.\n\n**Files:**\n- Create: `Sources/NotchKit/NotchGeometry.swift`, `Tests/NotchKitTests/NotchGeometryTests.swift`\n\n**Acceptance Criteria:**\n- [ ] `NotchGeometry(metrics:)` returns `nil` for a screen with no notch\n- [ ] The notch rect is centred horizontally and flush with the top of the screen\n- [ ] The panel frame is centred on the notch and anchored to the screen top\n- [ ] The collapsed hover rect adds slop below and beside the notch, never above it\n- [ ] All math respects a non-zero screen origin\n\n**Verify:** `swift test --filter NotchGeometryTests` → 6 tests pass\n\n```json:metadata\n{\"files\": [\"Sources/NotchKit/NotchGeometry.swift\", \"Tests/NotchKitTests/NotchGeometryTests.swift\"], \"verifyCommand\": \"swift test --filter NotchGeometryTests\", \"acceptanceCriteria\": [\"returns nil for a screen with no notch\", \"notch rect centred and flush with screen top\", \"panel frame centred on notch and anchored to screen top\", \"collapsed hover rect adds slop below and beside but never above\", \"math respects a non-zero screen origin\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 2: Scratchpad store",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Load, debounce-save, and externally-reload `scratchpad.md`, with the rule that the in-memory buffer wins while the user is editing.\n\n**Files:**\n- Create: `Sources/NotchKit/ScratchpadStore.swift`, `Tests/NotchKitTests/ScratchpadStoreTests.swift`, `Tests/NotchKitTests/TemporaryDirectory.swift`\n\n**Acceptance Criteria:**\n- [ ] Existing file contents load on init\n- [ ] Text is written to disk after the debounce interval\n- [ ] Several rapid edits produce exactly one write\n- [ ] An external change reloads into memory when the user is not editing\n- [ ] An external change does not clobber the buffer while the user is editing\n- [ ] A failed write surfaces `saveError` and keeps the text in memory\n\n**Verify:** `swift test --filter ScratchpadStoreTests` → 7 tests pass\n\nCRITICAL: the DispatchSource watcher must watch the containing DIRECTORY, not the file — atomic writes swap the inode and orphan a file-level watcher.\n\n```json:metadata\n{\"files\": [\"Sources/NotchKit/ScratchpadStore.swift\", \"Tests/NotchKitTests/ScratchpadStoreTests.swift\", \"Tests/NotchKitTests/TemporaryDirectory.swift\"], \"verifyCommand\": \"swift test --filter ScratchpadStoreTests\", \"acceptanceCriteria\": [\"existing file contents load on init\", \"text written to disk after the debounce interval\", \"rapid edits coalesce into exactly one write\", \"external change reloads when not editing\", \"external change does not clobber the buffer while editing\", \"failed write surfaces saveError and keeps text in memory\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 3: State machine",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** The collapsed/peek/pinned transitions with their open delay and close grace period, tested headlessly.\n\n**Files:**\n- Create: `Sources/NotchKit/NotchStateMachine.swift`, `Tests/NotchKitTests/NotchStateMachineTests.swift`\n\n**Acceptance Criteria:**\n- [ ] Hovering longer than the open delay moves collapsed → peek\n- [ ] Passing through the notch faster than the open delay does not open it\n- [ ] Leaving while peeking collapses after the grace period\n- [ ] Returning during the grace period cancels the collapse\n- [ ] Clicking while peeking pins the panel\n- [ ] While pinned, hover is ignored; only `dismiss()` closes it\n\n**Verify:** `swift test --filter NotchStateMachineTests` → 7 tests pass\n\n```json:metadata\n{\"files\": [\"Sources/NotchKit/NotchStateMachine.swift\", \"Tests/NotchKitTests/NotchStateMachineTests.swift\"], \"verifyCommand\": \"swift test --filter NotchStateMachineTests\", \"acceptanceCriteria\": [\"hover longer than open delay moves collapsed to peek\", \"passing through faster than the open delay does not open it\", \"leaving while peeking collapses after the grace period\", \"returning during the grace period cancels the collapse\", \"clicking while peeking pins the panel\", \"pinned ignores hover and closes only on dismiss\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 4: The panel and a visible placeholder",
+      "status": "pending",
+      "blockedBy": [2],
+      "description": "**Goal:** A transparent, non-activating `NSPanel` pinned under the real notch, showing a coloured placeholder so its placement can be judged.\n\n**Files:**\n- Create: `Sources/NotchKit/NotchPanel.swift`, `Sources/NotchKit/ScreenMetrics+NSScreen.swift`, `Sources/NotchKit/NotchController.swift`\n- Modify: `Sources/Notch/NotchApp.swift`\n\n**Acceptance Criteria:**\n- [ ] `swift build` succeeds\n- [ ] A red placeholder hangs directly below the notch, horizontally centred\n- [ ] It floats above the menu bar and stays put when switching Spaces\n- [ ] Clicking a menu bar item beside the notch still works\n- [ ] On a notchless Mac the app launches dormant with no panel\n\n**Verify:** `swift build && ./Scripts/bundle.sh && open build/Notch.app` → red rectangle sits flush under the notch\n\nNote: `NSWindow` conforms to `NSCoding`, so declaring a designated init forces a `required init?(coder:)`.\n\n```json:metadata\n{\"files\": [\"Sources/NotchKit/NotchPanel.swift\", \"Sources/NotchKit/ScreenMetrics+NSScreen.swift\", \"Sources/NotchKit/NotchController.swift\", \"Sources/Notch/NotchApp.swift\"], \"verifyCommand\": \"swift build && ./Scripts/bundle.sh\", \"acceptanceCriteria\": [\"swift build succeeds\", \"red placeholder hangs directly below the notch, centred\", \"panel floats above the menu bar and follows Space switches\", \"menu bar items beside the notch remain clickable\", \"app stays dormant with no panel on a notchless Mac\"], \"modelTier\": \"standard\", \"manualVerification\": true}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 5: Hover monitoring and live state",
+      "status": "pending",
+      "blockedBy": [4, 5],
+      "description": "**Goal:** Move the cursor into the notch and the placeholder appears; move away and it disappears; click to pin it.\n\n**Files:**\n- Create: `Sources/NotchKit/HoverMonitor.swift`\n- Modify: `Sources/NotchKit/NotchController.swift`\n\n**Acceptance Criteria:**\n- [ ] Resting the cursor on the notch shows the placeholder after a short delay\n- [ ] Sweeping past the notch quickly does not open it\n- [ ] Moving down into the open panel keeps it open\n- [ ] Moving away closes it after the grace period\n- [ ] Clicking the open panel pins it; Escape closes it\n- [ ] No Accessibility permission prompt appears at any point\n\n**Verify:** `./Scripts/bundle.sh && open build/Notch.app` → hover the notch and confirm each behaviour\n\nBoth a global AND a local monitor are required for hover and for clicks: the global monitor never fires for events routed to our own app.\n\n```json:metadata\n{\"files\": [\"Sources/NotchKit/HoverMonitor.swift\", \"Sources/NotchKit/NotchController.swift\"], \"verifyCommand\": \"swift build && ./Scripts/bundle.sh\", \"acceptanceCriteria\": [\"resting on the notch opens it after a short delay\", \"sweeping quickly past the notch does not open it\", \"moving down into the open panel keeps it open\", \"moving away closes it after the grace period\", \"clicking pins it and Escape closes it\", \"no Accessibility permission prompt appears\"], \"modelTier\": \"standard\", \"manualVerification\": true}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 6: Notch chrome",
+      "status": "pending",
+      "blockedBy": [6],
+      "description": "**Goal:** Replace the placeholder with the real shape — a panel that reads as growing out of the notch — and give it a slot for content.\n\n**Files:**\n- Create: `Sources/NotchKit/NotchChrome.swift`\n- Modify: `Sources/NotchKit/NotchController.swift`\n\n**Acceptance Criteria:**\n- [ ] Black surface, top edge flush with the notch, bottom corners rounded\n- [ ] Never narrower than the notch\n- [ ] The expand animation springs downward from the notch\n- [ ] Arbitrary content can be passed in via a trailing closure\n- [ ] Collapsed state renders nothing at all\n\n**Verify:** `./Scripts/bundle.sh && open build/Notch.app` → hovering shows a black rounded panel that appears to extend the notch\n\n```json:metadata\n{\"files\": [\"Sources/NotchKit/NotchChrome.swift\", \"Sources/NotchKit/NotchController.swift\"], \"verifyCommand\": \"swift build && ./Scripts/bundle.sh\", \"acceptanceCriteria\": [\"open panel is black, flush at the top, rounded at the bottom\", \"never narrower than the notch\", \"expand animation springs downward from the notch\", \"content is injectable via a trailing closure\", \"collapsed state renders nothing\"], \"modelTier\": \"standard\", \"manualVerification\": true}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 7: The scratchpad",
+      "status": "pending",
+      "blockedBy": [3, 7],
+      "description": "**Goal:** Type into the notch and have it saved, with focus handled so typing never steals the frontmost app's activation.\n\n**Files:**\n- Create: `Sources/NotchKit/ScratchpadView.swift`\n- Modify: `Sources/NotchKit/NotchController.swift`\n\n**Acceptance Criteria:**\n- [ ] Pinning the panel focuses the text field automatically\n- [ ] Typed text appears in `~/Documents/NotchNotes/scratchpad.md` within a second\n- [ ] The frontmost app keeps its active appearance while typing\n- [ ] Text survives quitting and relaunching\n- [ ] Escape dismisses the panel and flushes the pending save\n- [ ] A save failure shows a banner and does not discard the text\n\n**Verify:** `./Scripts/bundle.sh && open build/Notch.app`, type a line, then `cat ~/Documents/NotchNotes/scratchpad.md` → the line is there\n\n```json:metadata\n{\"files\": [\"Sources/NotchKit/ScratchpadView.swift\", \"Sources/NotchKit/NotchController.swift\"], \"verifyCommand\": \"swift build && ./Scripts/bundle.sh\", \"acceptanceCriteria\": [\"pinning focuses the text field automatically\", \"typed text lands in ~/Documents/NotchNotes/scratchpad.md within a second\", \"frontmost app keeps its active appearance while typing\", \"text survives quit and relaunch\", \"Escape dismisses and flushes the pending save\", \"save failure shows a banner without discarding text\"], \"modelTier\": \"standard\", \"manualVerification\": true}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 8: Menu bar, login item, and screen changes",
+      "status": "pending",
+      "blockedBy": [8],
+      "description": "**Goal:** Round the app off — reveal the notes folder, launch at login, and survive display reconfiguration.\n\n**Files:**\n- Create: `Sources/NotchKit/LaunchAtLogin.swift`\n- Modify: `Sources/NotchKit/NotchController.swift`, `Sources/Notch/NotchApp.swift`\n\n**Acceptance Criteria:**\n- [ ] The menu offers Reveal Notes, Launch at Login, and Quit\n- [ ] Reveal Notes opens `~/Documents/NotchNotes` in Finder\n- [ ] The Launch at Login toggle persists across relaunch\n- [ ] Plugging or unplugging a display does not misplace the panel\n- [ ] Losing the built-in screen orders the panel out rather than stranding it\n\n**Verify:** `./Scripts/bundle.sh && open build/Notch.app` → exercise each menu item; connect/disconnect a display\n\n```json:metadata\n{\"files\": [\"Sources/NotchKit/LaunchAtLogin.swift\", \"Sources/NotchKit/NotchController.swift\", \"Sources/Notch/NotchApp.swift\"], \"verifyCommand\": \"swift build && ./Scripts/bundle.sh\", \"acceptanceCriteria\": [\"menu offers Reveal Notes, Launch at Login, and Quit\", \"Reveal Notes opens ~/Documents/NotchNotes in Finder\", \"Launch at Login toggle persists across relaunch\", \"connecting or disconnecting a display does not misplace the panel\", \"losing the built-in screen orders the panel out instead of stranding it\"], \"modelTier\": \"standard\", \"manualVerification\": true}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 9: End-to-end pass and README",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Confirm the whole thing works as specified, and leave instructions for building and signing it.\n\n**Files:**\n- Create: `README.md`, `tasks/todo.md`\n\n**Acceptance Criteria:**\n- [ ] `swift test` passes with every test from Tasks 1–3\n- [ ] Every acceptance criterion from Tasks 4–8 is re-checked on the running app\n- [ ] `README.md` documents build, test, bundle, run, and the Developer ID path\n- [ ] `tasks/todo.md` records the completed work and a review section\n\n**Verify:** `swift test` → 21 tests pass (1 smoke + 6 geometry + 7 store + 7 state machine); manual walkthrough of the README usage section succeeds\n\n```json:metadata\n{\"files\": [\"README.md\", \"tasks/todo.md\"], \"verifyCommand\": \"swift test\", \"acceptanceCriteria\": [\"swift test passes all 21 tests\", \"every acceptance criterion from Tasks 4-8 re-checked on the running app\", \"README documents build, test, bundle, run, and the Developer ID path\", \"tasks/todo.md records completed work and a review section\"], \"modelTier\": \"standard\", \"manualVerification\": true}\n```"
+    }
+  ],
+  "lastUpdated": "2026-07-31"
+}
