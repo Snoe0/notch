@@ -5,7 +5,7 @@ import Combine
 /// Owns the panel and wires hover → state machine → panel visibility.
 @MainActor
 public final class NotchController {
-    private let geometry: NotchGeometry?
+    private var geometry: NotchGeometry?
     private let hover = HoverMonitor()
     private let machine = NotchStateMachine()
     private let store = ScratchpadStore(directory: ScratchpadStore.defaultDirectory)
@@ -49,6 +49,7 @@ public final class NotchController {
 
         watchForClicks()
         watchForEscape()
+        watchForScreenChanges()
     }
 
     /// The panel accepts the mouse only while open, and the hover region grows
@@ -115,6 +116,45 @@ public final class NotchController {
     private func flushOnClose(_ state: NotchState) {
         guard state == .collapsed else { return }
         Task { await store.flush() }
+    }
+
+    /// Display changes move the notch. Collapse first so nothing is stranded
+    /// mid-animation, then re-place the panel against the new geometry.
+    ///
+    /// After re-placing, the state is re-applied rather than ordering the
+    /// panel front unconditionally: `dismiss()` above already put the state
+    /// machine into `.collapsed`, whose normal handling is to order the panel
+    /// OUT. Calling `orderFrontRegardless()` here would fight that and leave
+    /// a visible-but-empty panel at the new position. Re-running `apply` with
+    /// the current (collapsed) state reconciles frame, hover rect, and
+    /// visibility from one source of truth instead of duplicating that logic.
+    private func watchForScreenChanges() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.machine.dismiss()
+                self.geometry = NotchGeometry.forBuiltInScreen()
+
+                guard let geometry = self.geometry else {
+                    self.panel?.orderOut(nil)
+                    return
+                }
+                self.panel?.setFrame(geometry.panelFrame, display: true)
+                self.apply(self.machine.state)
+            }
+        }
+    }
+
+    public func revealNotes() {
+        try? FileManager.default.createDirectory(
+            at: store.directoryURL,
+            withIntermediateDirectories: true
+        )
+        NSWorkspace.shared.activateFileViewerSelecting([store.fileURL])
     }
 }
 
