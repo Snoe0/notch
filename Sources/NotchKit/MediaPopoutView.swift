@@ -14,6 +14,10 @@ import SwiftUI
 struct MediaPopoutView: View {
     let popout: MediaPopout
     let artwork: NSImage?
+    /// How much of the chip's trailing end sits under the physical notch. The
+    /// black extends that far so no seam can open between chip and cutout;
+    /// the content padding grows by the same amount so the bars stay visible.
+    let notchOverhang: CGFloat
 
     var body: some View {
         HStack(spacing: 8) {
@@ -24,7 +28,7 @@ struct MediaPopoutView: View {
             EqualizerBars()
         }
         .padding(.leading, 12)
-        .padding(.trailing, 11)
+        .padding(.trailing, 11 + notchOverhang)
         // Fills the notch band rather than sizing to the row, so the black
         // reaches the screen edge above and the notch's own bottom below.
         .frame(maxHeight: .infinity)

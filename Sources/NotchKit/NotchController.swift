@@ -77,8 +77,8 @@ public final class NotchController {
 
         switch state {
         case .collapsed: updateCollapsedPanel(forPopout: popouts.popout)
-        case .peek:      panel.orderFrontRegardless()
-        case .pinned:    panel.makeKeyAndOrderFront(nil)
+        case .peek:      panel.alphaValue = 1; panel.orderFrontRegardless()
+        case .pinned:    panel.alphaValue = 1; panel.makeKeyAndOrderFront(nil)
         }
 
         pollMediaWhileOpen(state)
@@ -95,7 +95,17 @@ public final class NotchController {
         if popout == nil {
             panel.orderOut(nil)
         } else {
+            // The window's backing store still holds the last frame drawn
+            // before it was ordered out — the full-width open surface, which
+            // extends past the notch on both sides. Ordering straight in
+            // flashes that stale frame for an instant, so the window comes
+            // back invisible and is revealed only after SwiftUI has had a
+            // runloop turn to commit the chip.
+            panel.alphaValue = 0
             panel.orderFrontRegardless()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                panel.alphaValue = 1
+            }
         }
     }
 

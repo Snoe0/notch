@@ -78,13 +78,25 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
     /// mouse-transparent, so the menus stay clickable throughout and the band
     /// is its own again a moment later.
     private var chipBand: some View {
-        notchBand(alignment: .trailing) {
+        notchBand(alignment: .trailing, overhang: Self.notchOverhang) {
             if let popout {
-                MediaPopoutView(popout: popout, artwork: artwork)
-                    .transition(Self.slideOutOfNotch)
+                MediaPopoutView(
+                    popout: popout,
+                    artwork: artwork,
+                    notchOverhang: Self.notchOverhang
+                )
+                .transition(Self.slideOutOfNotch)
             }
         }
     }
+
+    /// How far the chip's black extends under the physical notch. The reported
+    /// notch rect and the hardware cutout can disagree by a point or two, and
+    /// a chip clipped exactly at the reported edge shows that disagreement as
+    /// a seam of wallpaper between chip and notch. Points drawn under the
+    /// cutout are invisible, so overshooting is free — the same reasoning as
+    /// `NotchGeometry.topOvershoot`.
+    static var notchOverhang: CGFloat { 12 }
 
     /// The chip leaves the way it came in. `move(edge: .trailing)` offsets it by
     /// its own width, which lands it exactly behind the notch, and the band's
@@ -107,14 +119,19 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
     /// hides the chip while it is behind it — is written once.
     private func notchBand<Slot: View>(
         alignment: Alignment,
+        overhang: CGFloat = 0,
         @ViewBuilder slot: () -> Slot
     ) -> some View {
         let slot = slot()
         return GeometryReader { proxy in
             HStack(spacing: 0) {
                 slot
-                    .frame(width: flankWidth(in: proxy.size.width), alignment: alignment)
-                    // Nothing may spill under the notch, whatever the slot draws.
+                    .frame(
+                        width: flankWidth(in: proxy.size.width) + overhang,
+                        alignment: alignment
+                    )
+                    // Nothing may spill past the overhang, whatever the slot
+                    // draws — and the overhang itself never leaves the notch.
                     .clipped()
                 Spacer(minLength: 0)
             }
@@ -133,7 +150,12 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
 extension View {
     /// The panel surface: black, square at the top so it merges into the notch
     /// and the screen edge, rounded below so it reads as a lozenge, hairline
-    /// border, one soft shadow.
+    /// border.
+    ///
+    /// No shadow: the surface fills the panel window edge to edge, so a shadow
+    /// has nowhere legitimate to land — the window clips it everywhere except
+    /// inside the corner cutouts, where it puddles into a hard-edged grey
+    /// square over the wallpaper.
     func notchSurface(cornerRadius: CGFloat = 22) -> some View {
         let shape = UnevenRoundedRectangle(
             topLeadingRadius: 0,
@@ -146,7 +168,6 @@ extension View {
             .overlay(alignment: .bottom) {
                 shape.strokeBorder(.white.opacity(0.08), lineWidth: 1)
             }
-            .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
     }
 
     /// The now-playing chip: the same black and the same corner idiom, square
