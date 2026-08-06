@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Swift 6 needs Xcode 16 or newer. Pinned rather than "latest-stable" so a
+      # runner image update cannot change the toolchain under us; bump when the
+      # macos-15 image stops shipping this version.
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Test
+        run: swift test

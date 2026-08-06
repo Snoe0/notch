@@ -1,0 +1,165 @@
+# Builds Notch on a `v*` tag, produces build/Notch.dmg, and attaches it to a
+# GitHub Release.
+#
+# Signing is optional and driven entirely by repository secrets — adding them
+# turns Developer ID signing and notarization on with no edits to this file.
+#
+# Developer ID signing (both required):
+#   MACOS_CERTIFICATE_P12_BASE64  base64 of the exported .p12
+#                                 (`base64 -i cert.p12 | pbcopy`)
+#   MACOS_CERTIFICATE_PASSWORD    password set when exporting the .p12
+#
+# Notarization — either credential set works; the API key is preferred.
+#   App Store Connect API key:
+#     APPSTORE_API_KEY_ID           e.g. ABCD123456
+#     APPSTORE_API_ISSUER_ID        UUID from App Store Connect → Integrations
+#     APPSTORE_API_PRIVATE_KEY_BASE64  base64 of the AuthKey_XXXX.p8
+#   Apple ID:
+#     APPLE_ID                      the Apple ID email
+#     APPLE_TEAM_ID                 10-character team id
+#     APPLE_APP_PASSWORD            app-specific password from appleid.apple.com
+#
+# With no secrets set, the ad-hoc signature from Scripts/bundle.sh is kept and
+# the DMG still ships — users then need right-click → Open on first launch.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Swift 6 needs Xcode 16 or newer. Kept in step with ci.yml.
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
+
+      - name: Test
+        run: swift test
+
+      - name: Bundle app
+        run: ./Scripts/bundle.sh
+
+      # The `secrets` context is not usable in a step-level `if:`, so presence is
+      # resolved once here in the shell and exported as step outputs.
+      - name: Detect signing secrets
+        id: signing
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY_BASE64 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          sign=false
+          notarize=false
+          if [ -n "$CERT" ] && [ -n "$CERT_PASSWORD" ]; then
+            sign=true
+          fi
+          if [ "$sign" = true ]; then
+            if [ -n "$API_KEY_ID" ] && [ -n "$API_ISSUER_ID" ] && [ -n "$API_PRIVATE_KEY" ]; then
+              notarize=true
+            elif [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
+              notarize=true
+            fi
+          fi
+          echo "sign=$sign" >> "$GITHUB_OUTPUT"
+          echo "notarize=$notarize" >> "$GITHUB_OUTPUT"
+          echo "Developer ID signing: $sign, notarization: $notarize"
+
+      - name: Import Developer ID certificate
+        if: steps.signing.outputs.sign == 'true'
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/notch-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+          printf '%s' "$CERT" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -k "$KEYCHAIN" -P "$CERT_PASSWORD" -A -t cert -f pkcs12
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/certificate.p12"
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | grep 'Developer ID Application' | head -1 | sed -n 's/.*"\(.*\)".*/\1/p')"
+          if [ -z "$IDENTITY" ]; then
+            echo "no Developer ID Application identity in the imported certificate" >&2
+            exit 1
+          fi
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "imported $IDENTITY"
+
+      - name: Sign app with Developer ID
+        if: steps.signing.outputs.sign == 'true'
+        run: |
+          codesign --force --timestamp --options runtime \
+            --keychain "$KEYCHAIN" --sign "$SIGNING_IDENTITY" build/Notch.app
+          codesign --verify --strict --verbose=2 build/Notch.app
+
+      - name: Make DMG
+        run: ./Scripts/make-dmg.sh
+
+      - name: Sign DMG
+        if: steps.signing.outputs.sign == 'true'
+        run: |
+          codesign --force --timestamp \
+            --keychain "$KEYCHAIN" --sign "$SIGNING_IDENTITY" build/Notch.dmg
+
+      - name: Notarize and staple
+        if: steps.signing.outputs.notarize == 'true'
+        env:
+          API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY_BASE64 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [ -n "$API_KEY_ID" ] && [ -n "$API_ISSUER_ID" ] && [ -n "$API_PRIVATE_KEY" ]; then
+            KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+            printf '%s' "$API_PRIVATE_KEY" | base64 --decode > "$KEY_PATH"
+            xcrun notarytool submit build/Notch.dmg --wait \
+              --key "$KEY_PATH" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID"
+            rm -f "$KEY_PATH"
+          else
+            xcrun notarytool submit build/Notch.dmg --wait \
+              --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          fi
+          xcrun stapler staple build/Notch.dmg
+          xcrun stapler validate build/Notch.dmg
+
+      - name: Clean up keychain
+        if: always() && steps.signing.outputs.sign == 'true'
+        run: security delete-keychain "$KEYCHAIN" || true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" build/Notch.dmg --clobber
+          else
+            gh release create "$TAG" build/Notch.dmg --title "Notch $TAG" --generate-notes
+          fi
