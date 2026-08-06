@@ -42,6 +42,7 @@ private let mbp14 = ScreenMetrics(
     #expect(geometry.panelFrame.size == NotchGeometry.expandedSize)
     #expect(geometry.panelFrame.midX == geometry.notchRect.midX)
     #expect(geometry.panelFrame.maxY == 982)
+    #expect(geometry.panelFrame.minY == 722)   // 982 - 260, hanging down from the top
 }
 
 
@@ -100,6 +101,6 @@ private let mbp14 = ScreenMetrics(
     #expect(hover.contains(CGPoint(x: 756, y: 982)))   // the exact top edge
     #expect(hover.minY == geometry.panelFrame.minY)    // no taller at the bottom
     #expect(hover.width == geometry.panelFrame.width)
-    #expect(hover.contains(CGPoint(x: 756, y: 800)))   // deep inside the panel
+    #expect(hover.contains(CGPoint(x: 756, y: 740)))   // just above the panel's bottom edge
     #expect(!hover.contains(CGPoint(x: 756, y: 700)))  // below the panel
 }

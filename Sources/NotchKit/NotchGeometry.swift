@@ -26,7 +26,7 @@ public struct ScreenMetrics: Equatable, Sendable {
 public struct NotchGeometry: Equatable, Sendable {
     /// The fixed size of the panel window. It never changes; the content
     /// inside it animates instead.
-    public static let expandedSize = CGSize(width: 620, height: 200)
+    public static let expandedSize = CGSize(width: 620, height: 260)
 
     public let notchRect: CGRect
     public let panelFrame: CGRect

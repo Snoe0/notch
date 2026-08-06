@@ -9,10 +9,13 @@ public final class NotchController {
     private let cursor = CursorWatcher()
     private let machine = NotchStateMachine()
     private let store = ScratchpadStore(directory: ScratchpadStore.defaultDirectory)
+    private let todos = TodoStore(directory: TodoStore.defaultDirectory)
+    private let media = MediaController()
     private var panel: NotchPanel?
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
     private var escapeMonitor: Any?
+    private var isPollingMedia = false
 
     public init() {
         geometry = NotchGeometry.forBuiltInScreen()
@@ -29,6 +32,8 @@ public final class NotchController {
             content: NotchRoot(
                 machine: machine,
                 store: store,
+                todos: todos,
+                media: media,
                 notchSize: geometry.notchRect.size
             )
         )
@@ -69,7 +74,22 @@ public final class NotchController {
         case .pinned:    panel.makeKeyAndOrderFront(nil)
         }
 
+        pollMediaWhileOpen(state)
         flushOnClose(state)
+    }
+
+    /// Each poll tick costs an `osascript` round trip, so polling runs only
+    /// while the panel is open — which is also why the Automation prompt
+    /// appears on first open rather than at launch. Only the transition acts:
+    /// re-starting on peek → pinned would reset the tick for nothing.
+    private func pollMediaWhileOpen(_ state: NotchState) {
+        guard state.isOpen != isPollingMedia else { return }
+        isPollingMedia = state.isOpen
+        if state.isOpen {
+            media.startPolling()
+        } else {
+            media.stopPolling()
+        }
     }
 
     /// A click in one of our own windows pins the panel. A local monitor is
@@ -120,7 +140,10 @@ public final class NotchController {
     /// Never leave a pending debounced write unwritten when the panel closes.
     private func flushOnClose(_ state: NotchState) {
         guard state == .collapsed else { return }
-        Task { await store.flush() }
+        Task {
+            await store.flush()
+            await todos.flush()
+        }
     }
 
     /// Display changes move the notch. Collapse first so nothing is stranded
@@ -160,19 +183,27 @@ public final class NotchController {
             at: store.directoryURL,
             withIntermediateDirectories: true
         )
-        NSWorkspace.shared.activateFileViewerSelecting([store.fileURL])
+        NSWorkspace.shared.activateFileViewerSelecting([store.fileURL, todos.fileURL])
     }
 }
 
 /// Bridges the observable state machine into the chrome.
 private struct NotchRoot: View {
     @ObservedObject var machine: NotchStateMachine
-    @ObservedObject var store: ScratchpadStore
+    let store: ScratchpadStore
+    let todos: TodoStore
+    let media: MediaController
     let notchSize: CGSize
 
     var body: some View {
         NotchChrome(state: machine.state, notchSize: notchSize) {
-            ScratchpadView(store: store, isPinned: machine.state == .pinned)
+            MediaControlsView(media: media)
+        } content: {
+            PanelContentView(
+                todos: todos,
+                scratchpad: store,
+                isPinned: machine.state == .pinned
+            )
         }
     }
 }

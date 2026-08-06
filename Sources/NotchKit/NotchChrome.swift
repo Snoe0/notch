@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// The visible surface that hangs off the notch, and the slot its content
-/// lives in. v1 fills the slot with the scratchpad; media controls or a file
-/// shelf would drop into the same place without touching anything else.
-public struct NotchChrome<Content: View>: View {
+/// The visible surface that hangs off the notch: a notch-height top strip and
+/// the content slot below it. Both are slots — the chrome only knows where the
+/// physical notch is, never what is drawn around it.
+public struct NotchChrome<TopLeading: View, Content: View>: View {
     private let state: NotchState
     private let notchSize: CGSize
+    private let topLeading: () -> TopLeading
     private let content: () -> Content
 
     private static var cornerRadius: CGFloat { 22 }
@@ -13,10 +14,12 @@ public struct NotchChrome<Content: View>: View {
     public init(
         state: NotchState,
         notchSize: CGSize,
+        @ViewBuilder topLeading: @escaping () -> TopLeading,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.state = state
         self.notchSize = notchSize
+        self.topLeading = topLeading
         self.content = content
     }
 
@@ -35,33 +38,55 @@ public struct NotchChrome<Content: View>: View {
     }
 
     private var surface: some View {
-        content()
-            // The panel's top edge sits under the physical notch, so the first
-            // notch-height of the surface is not visible. Reserving it here
-            // means every module in the slot clears the notch automatically.
-            .padding(.top, notchSize.height)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(minWidth: notchSize.width)
-            .background(.black)
-            // Square at the top so the panel merges into the notch and the
-            // screen edge; rounded at the bottom so it reads as a lozenge.
-            .clipShape(
-                .rect(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: Self.cornerRadius,
-                    bottomTrailingRadius: Self.cornerRadius,
-                    topTrailingRadius: 0
-                )
+        VStack(spacing: 0) {
+            topStrip
+            content()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: notchSize.width)
+        .background(.black)
+        // Square at the top so the panel merges into the notch and the
+        // screen edge; rounded at the bottom so it reads as a lozenge.
+        .clipShape(
+            .rect(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: Self.cornerRadius,
+                bottomTrailingRadius: Self.cornerRadius,
+                topTrailingRadius: 0
             )
-            .overlay(alignment: .bottom) {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: Self.cornerRadius,
-                    bottomTrailingRadius: Self.cornerRadius,
-                    topTrailingRadius: 0
-                )
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        )
+        .overlay(alignment: .bottom) {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: Self.cornerRadius,
+                bottomTrailingRadius: Self.cornerRadius,
+                topTrailingRadius: 0
+            )
+            .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
+    }
+
+    /// The band the physical notch covers: a usable slot on each side of it and
+    /// dead space in the middle. The surface is centred on the notch, so the
+    /// two flanks are equal — the trailing one is deliberately left empty.
+    private var topStrip: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                topLeading()
+                    .frame(width: flankWidth(in: proxy.size.width))
+                    // Nothing may spill under the notch, whatever the slot draws.
+                    .clipped()
+                Spacer(minLength: 0)
             }
-            .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
+        }
+        .frame(height: notchSize.height)
+    }
+
+    /// Measured rather than derived from `expandedSize`, because the surface
+    /// stretches to whatever width it is given and only its minimum is known
+    /// here.
+    private func flankWidth(in surfaceWidth: CGFloat) -> CGFloat {
+        max(0, (surfaceWidth - notchSize.width) / 2)
     }
 }

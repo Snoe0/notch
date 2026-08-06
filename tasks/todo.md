@@ -62,24 +62,59 @@ Spec: `docs/superpowers/specs/2026-08-06-notch-v2-media-todos-opensource-design.
 
 Batch 1 — independent, run in parallel:
 
-- [ ] Task A — extract `PersistedFile` from `ScratchpadStore`; add `TodoStore`
-      with markdown checklist round-trip; unit tests
-- [ ] Task B — `MediaController` with `MediaScripting` protocol, osascript
-      adapter for Music + Spotify; source-selection unit tests
-- [ ] Task C — MIT LICENSE, public README rewrite, `Scripts/make-dmg.sh`,
-      CI + release GitHub workflows (Developer-ID-ready signing)
+- [x] Task A — extract `PersistedFile` from `ScratchpadStore`; add `TodoStore`
+      with markdown checklist round-trip; unit tests — `4fbc1a1`
+- [x] Task B — `MediaController` with `MediaScripting` protocol, osascript
+      adapter for Music + Spotify; source-selection unit tests — `94efe62`
+- [x] Task C — MIT LICENSE, public README rewrite, `Scripts/make-dmg.sh`,
+      CI + release GitHub workflows (Developer-ID-ready signing) — `e6455b2`
 
 Batch 2 — after A and B:
 
-- [ ] Task D — panel layout: `NotchChrome` top row (media | notch | empty),
+- [x] Task D — panel layout: `NotchChrome` top row (media | notch | empty),
       `MediaControlsView`, `TodoListView`, `PanelContentView`, height 200→260,
       wiring in controller/app
 
 Finish:
 
-- [ ] Full `swift test`, bundle, manual walkthrough
-- [ ] Review section below; user reviews; `gh repo create` + push on approval
+- [x] Full `swift test` (52/52), clean build, `bundle.sh` → build/Notch.app
+- [ ] Manual walkthrough on hardware (**pending — needs a human at the notch**)
+- [ ] User reviews; `gh repo create yurikorolev/notch` + push on approval
 
 ## Review
 
-(pending)
+**What was built.** Media controls (Music + Spotify over AppleScript, polled
+only while the panel is open) in the top-left strip beside the notch clearance;
+a todo checklist column left of the notes input, persisted to
+`~/Documents/NotchNotes/todos.md` as markdown checkboxes; MIT license, public
+README, `Scripts/make-dmg.sh`, and CI + release workflows whose Developer ID
+signing/notarization turns on via repo secrets alone. Panel height 200 → 260;
+everything else about the window, state machine, and hover story unchanged.
+
+**Deviations from the spec.**
+
+1. *README Input Monitoring section rewritten, not preserved.* The spec said
+   keep it; the claim was stale — hover has polled `NSEvent.mouseLocation`
+   since `908a353` and needs no permission. The section now says "not
+   required" and keeps the history.
+2. *`MediaSnapshot` has no `isRunning`.* Not-running, no-track, and script
+   failure all collapse to `nil`, so the flag would permit contradictory
+   states.
+3. *`ScratchpadView` gained `takesFocus`.* With two text fields in the panel,
+   the scratchpad's focus-reclaim yanked the caret out of the todo add field;
+   the notes column now yields while the todo field is editing.
+4. *Top-strip width is measured, not derived from `expandedSize`.* The surface
+   only declares a minimum width, so the flank is computed from the actual
+   surface width and clipped, keeping content out from under the notch at any
+   width.
+
+**Test coverage.** 52 tests: geometry (incl. new height pins), state machine,
+scratchpad store, todo markdown round-trip, todo store persistence/reload,
+media source-selection and command routing against a fake scripting layer.
+Unautomated: panel feel, Automation prompt flow, DMG install — the manual
+walkthrough covers them.
+
+**Owner to-do.** Screenshot for `docs/screenshot.png` (README lines ready,
+commented out); create `yurikorolev/notch` and push after review; add signing
+secrets when the Developer ID arrives (names documented at the top of
+`release.yml`); verify the Xcode pin on the first CI run.
