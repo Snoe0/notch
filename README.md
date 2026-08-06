@@ -15,8 +15,15 @@ it disappears. No Dock icon, no window to manage.
 - **Media** — title, artist, and ⏮ ⏯ ⏭ for Music.app and Spotify, in the strip
   beside the notch.
 
-<!-- Screenshot pending — capture the open panel and save it to docs/screenshot.png, then uncomment:
-![The Notch panel open under the notch](docs/screenshot.png)
+![The panel pinned open: media strip beside the notch, todos, and notes](docs/panel-open.png)
+
+When a song starts while the panel is closed, a chip slides out of the notch
+for a few seconds:
+
+![The now-playing chip sliding out of the notch](docs/chip.png)
+
+<!-- Photo pending — add a real photo of the notch in action as docs/photo.jpg, then uncomment:
+![Notch running on a MacBook](docs/photo.jpg)
 -->
 
 ## Requirements
