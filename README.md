@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="128" alt="Notch app icon" align="right">
+
 # Notch
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
