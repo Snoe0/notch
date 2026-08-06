@@ -118,3 +118,37 @@ walkthrough covers them.
 commented out); create `yurikorolev/notch` and push after review; add signing
 secrets when the Developer ID arrives (names documented at the top of
 `release.yml`); verify the Xcode pin on the first CI run.
+
+---
+
+# Notch — v2.1 fixes and media polish
+
+Spec: v2.1 addendum in the v2 design doc.
+
+- [x] Task E — fix the add-todo field: focus grabbed on pinned transition
+      only; add field backed by `NSTextField` — `git log` (fix: stop the
+      scratchpad stealing focus…); also switched all panel text from
+      monospaced to SF Pro at the owner's request
+- [x] Task F — album artwork (per-track fetch + cache), distributed-
+      notification listeners, ~3s now-playing popout while collapsed,
+      silent Automation-permission gate for background scripting
+- [x] Full `swift test` (81/81), zero-warning build, bundle ok
+- [ ] User re-test on hardware: add-field typing, caret visibility, popout
+      show/expiry/hover-takeover, Automation prompt only on first open,
+      artwork in strip and popout
+
+## v2.1 review
+
+Focus root cause: continuous `makeFirstResponder` from `updateNSView` raced
+the SwiftUI-published editing flag and always won; now edge-triggered via a
+tested pure value type, and the add field is an AppKit `NSTextField` (Return
+commits without ending editing). `takesFocus` workaround removed as dead.
+Lesson recorded in `tasks/lessons.md`.
+
+Media: `nowPlaying` now also fed by the public distributed notifications both
+players broadcast, so state stays fresh while collapsed with zero polling;
+popout decision logic lives in `PopoutPresenter` (pure, tested); collapsed
+panel is re-ordered in, still mouse-transparent, only while a lozenge is up.
+Background AppleScript is gated on `AEDeterminePermissionToAutomateTarget`
+already-granted so the prompt stays a first-open event. Artwork cached per
+track (last 4, misses included).

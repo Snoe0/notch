@@ -137,6 +137,33 @@ New permission: one Automation prompt per media app, on first panel open.
 - Manual: panel open/close feel, media prompt flow, DMG install on a clean
   account.
 
+## v2.1 addendum (2026-08-06, after first hands-on test)
+
+**Add-field fix.** Focus in the panel is grabbed only on the transition into
+the pinned state, never continuously; the todo add field becomes an
+AppKit-backed `NSTextField`, matching the scratchpad's `NSTextView` rationale
+(SwiftUI focus machinery is unreliable in a borderless non-activating panel).
+
+**Album artwork.** `MediaSnapshot` carries artwork identity; artwork bytes are
+fetched only when the track changes (Music: AppleScript `artwork 1` raw data;
+Spotify: `artwork url` + URLSession), cached per track, published by
+`MediaController` as an image. Shown small in the media strip and larger in
+the popout.
+
+**Now-playing popout.** Music and Spotify post public
+`DistributedNotificationCenter` notifications on playback changes
+(`com.apple.Music.playerInfo`, `com.spotify.client.PlaybackStateChanged`) with
+title/artist/state in userInfo — no polling, no permission. `MediaController`
+listens always; when a track starts or changes while the panel is collapsed,
+the chrome shows a small non-interactive now-playing lozenge under the notch
+for ~3 seconds (artwork + title), spring-animated like the panel. Hovering
+into the notch during a popout follows the normal open flow. While collapsed,
+AppleScript (artwork/metadata refinement) runs only if Automation permission
+is already granted — checked silently via
+`AEDeterminePermissionToAutomateTarget` with `askUserIfNeeded = false` — so
+the permission prompt still first appears on a user-initiated panel open,
+never because a song changed in the background.
+
 ## Non-goals (v2)
 
 - Now-playing from browsers or other apps (needs private API).
