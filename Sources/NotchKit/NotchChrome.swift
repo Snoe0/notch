@@ -130,10 +130,17 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
                         width: flankWidth(in: proxy.size.width) + overhang,
                         alignment: alignment
                     )
-                    // Nothing may spill past the overhang, whatever the slot
-                    // draws — and the overhang itself never leaves the notch.
-                    .clipped()
                 Spacer(minLength: 0)
+            }
+            // A static mask on the band, not `.clipped()` on the slot: the
+            // slide transition lives inside the slot's modifier chain and its
+            // offset could paint past a clip that animates with it — on
+            // hardware the chip's edge showed on the far side of the notch
+            // mid-slide. The band itself never transitions, so a mask here
+            // bounds the finished rendering no matter what moves inside.
+            .mask(alignment: .leading) {
+                Rectangle()
+                    .frame(width: flankWidth(in: proxy.size.width) + overhang)
             }
         }
         .frame(height: notchSize.height)
