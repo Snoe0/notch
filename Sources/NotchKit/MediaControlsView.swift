@@ -12,8 +12,11 @@ public struct MediaControlsView: View {
 
     public var body: some View {
         HStack(spacing: 6) {
+            if let artwork = media.artwork {
+                ArtworkView(image: artwork, side: 22)
+            }
             if let nowPlaying = media.nowPlaying {
-                trackLabel(nowPlaying)
+                TrackLabel(title: nowPlaying.title, artist: nowPlaying.artist, size: 11)
             }
             Spacer(minLength: 4)
             transport
@@ -25,24 +28,6 @@ public struct MediaControlsView: View {
 
     /// Idle means no media app had anything to report on the last poll.
     private var isIdle: Bool { media.nowPlaying == nil }
-
-    private func trackLabel(_ nowPlaying: NowPlaying) -> some View {
-        (title(nowPlaying) + artist(nowPlaying))
-            .font(.system(size: 11))
-            .lineLimit(1)
-            .truncationMode(.tail)
-    }
-
-    private func title(_ nowPlaying: NowPlaying) -> Text {
-        Text(nowPlaying.title).foregroundStyle(.white)
-    }
-
-    /// Trails the title on the same line, and disappears entirely when the app
-    /// reports no artist, so the separator never dangles.
-    private func artist(_ nowPlaying: NowPlaying) -> Text {
-        guard !nowPlaying.artist.isEmpty else { return Text("") }
-        return Text(" — \(nowPlaying.artist)").foregroundStyle(.white.opacity(0.5))
-    }
 
     private var transport: some View {
         HStack(spacing: 2) {

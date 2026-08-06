@@ -27,6 +27,16 @@ public enum MediaApp: String, CaseIterable, Sendable {
 
     /// What the UI calls this app.
     public var displayName: String { scriptingName }
+
+    /// The public notification the app posts on `DistributedNotificationCenter`
+    /// whenever playback changes. Listening costs nothing and needs no
+    /// permission, which is what keeps the collapsed notch free of polling.
+    public var playbackNotification: Notification.Name {
+        switch self {
+        case .music: Notification.Name("com.apple.Music.playerInfo")
+        case .spotify: Notification.Name("com.spotify.client.PlaybackStateChanged")
+        }
+    }
 }
 
 /// One of the three transport buttons on the media strip.
@@ -54,6 +64,21 @@ public struct MediaSnapshot: Equatable, Sendable {
     }
 }
 
+/// Which track a piece of artwork belongs to.
+///
+/// Title and artist are all the media apps agree on, and they are stable for as
+/// long as the track is playing — enough to cache artwork against and to detect
+/// that the track moved on mid-fetch.
+public struct TrackIdentity: Hashable, Sendable {
+    public let title: String
+    public let artist: String
+
+    public init(title: String, artist: String) {
+        self.title = title
+        self.artist = artist
+    }
+}
+
 /// Reads and controls a single media app.
 ///
 /// The seam that keeps `MediaController`'s source selection testable: the real
@@ -64,4 +89,16 @@ public protocol MediaScripting: Sendable {
 
     /// Best effort. Failures are silent; the next poll tick shows the truth.
     func send(_ command: MediaCommand, to app: MediaApp) async
+
+    /// Encoded image bytes for `track`, or `nil` when the track has no
+    /// artwork, the app moved on, or the fetch failed.
+    ///
+    /// Far more expensive than a snapshot — Music copies the whole image out,
+    /// Spotify needs a download — so callers fetch once per track, never per
+    /// poll tick.
+    func artwork(for app: MediaApp, track: TrackIdentity) async -> Data?
+
+    /// Whether Automation permission for `app` has *already* been granted,
+    /// answered without ever showing the permission prompt.
+    func hasAutomationPermission(for app: MediaApp) async -> Bool
 }

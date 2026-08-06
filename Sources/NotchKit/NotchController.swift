@@ -11,6 +11,7 @@ public final class NotchController {
     private let store = ScratchpadStore(directory: ScratchpadStore.defaultDirectory)
     private let todos = TodoStore(directory: TodoStore.defaultDirectory)
     private let media = MediaController()
+    private let popouts = PopoutPresenter()
     private var panel: NotchPanel?
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
@@ -31,6 +32,7 @@ public final class NotchController {
             frame: geometry.panelFrame,
             content: NotchRoot(
                 machine: machine,
+                popouts: popouts,
                 store: store,
                 todos: todos,
                 media: media,
@@ -51,6 +53,7 @@ public final class NotchController {
             .sink { [weak self] state in self?.apply(state) }
             .store(in: &cancellables)
 
+        watchForPlayback()
         watchForClicks()
         watchForKeyLoss()
         watchForEscape()
@@ -68,14 +71,53 @@ public final class NotchController {
         cursor.activeRect = state.isOpen ? geometry.openHoverRect : geometry.collapsedHoverRect
         panel.setInteractive(state.isOpen)
 
+        // Opening takes the lozenge away, which orders the window out; the
+        // switch below must have the last word, so this comes first.
+        popouts.notchStateChanged(to: state)
+
         switch state {
-        case .collapsed: panel.orderOut(nil)
+        case .collapsed: updateCollapsedPanel(forPopout: popouts.popout)
         case .peek:      panel.orderFrontRegardless()
         case .pinned:    panel.makeKeyAndOrderFront(nil)
         }
 
         pollMediaWhileOpen(state)
         flushOnClose(state)
+    }
+
+    /// A collapsed panel is normally ordered out, which is what releases key
+    /// status and guarantees it can swallow nothing. The now-playing lozenge
+    /// is the one thing that draws while collapsed, so the window comes back
+    /// for exactly as long as one is up — still ignoring the mouse, because
+    /// `setInteractive(false)` above already covers the collapsed state.
+    private func updateCollapsedPanel(forPopout popout: MediaPopout?) {
+        guard let panel else { return }
+        if popout == nil {
+            panel.orderOut(nil)
+        } else {
+            panel.orderFrontRegardless()
+        }
+    }
+
+    /// Playback announcements decide the lozenge; the lozenge decides whether
+    /// a collapsed panel is on screen at all.
+    private func watchForPlayback() {
+        media.playbackEvents
+            .sink { [weak self] nowPlaying in
+                guard let self else { return }
+                self.popouts.playbackChanged(to: nowPlaying, while: self.machine.state)
+            }
+            .store(in: &cancellables)
+
+        popouts.$popout
+            .sink { [weak self] popout in
+                // `@Published` fires before the property changes, so this can
+                // run mid-`apply` with a stale state. Ordering out in that
+                // window is harmless: `apply` re-orders the panel right after.
+                guard let self, self.machine.state == .collapsed else { return }
+                self.updateCollapsedPanel(forPopout: popout)
+            }
+            .store(in: &cancellables)
     }
 
     /// Each poll tick costs an `osascript` round trip, so polling runs only
@@ -190,13 +232,19 @@ public final class NotchController {
 /// Bridges the observable state machine into the chrome.
 private struct NotchRoot: View {
     @ObservedObject var machine: NotchStateMachine
+    @ObservedObject var popouts: PopoutPresenter
     let store: ScratchpadStore
     let todos: TodoStore
-    let media: MediaController
+    @ObservedObject var media: MediaController
     let notchSize: CGSize
 
     var body: some View {
-        NotchChrome(state: machine.state, notchSize: notchSize) {
+        NotchChrome(
+            state: machine.state,
+            notchSize: notchSize,
+            popout: popouts.popout,
+            artwork: media.artwork
+        ) {
             MediaControlsView(media: media)
         } content: {
             PanelContentView(

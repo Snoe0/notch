@@ -1,8 +1,12 @@
+import AppKit
 import Testing
 import Foundation
 @testable import NotchKit
 
 private let fastInterval = Duration.milliseconds(10)
+
+/// Long enough for a fetch task spawned by the controller to finish.
+private let settleTime = Duration.milliseconds(50)
 
 private func playing(_ app: MediaApp, _ title: String) -> MediaSnapshot {
     MediaSnapshot(app: app, title: title, artist: "Someone", isPlaying: true)
@@ -12,6 +16,28 @@ private func paused(_ app: MediaApp, _ title: String) -> MediaSnapshot {
     MediaSnapshot(app: app, title: title, artist: "Someone", isPlaying: false)
 }
 
+private func announcement(_ title: String, _ state: String) -> [String: String] {
+    ["Name": title, "Artist": "Someone", "Player State": state]
+}
+
+/// The smallest thing `NSImage(data:)` accepts, so the controller's published
+/// artwork is a real image rather than a decode failure.
+private let artworkBytes: Data = {
+    let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: 2,
+        pixelsHigh: 2,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    )!
+    return bitmap.representation(using: .png, properties: [:])!
+}()
+
 /// Answers from a dictionary and records what it was told to do.
 private actor FakeMediaScripting: MediaScripting {
     struct Sent: Equatable {
@@ -20,11 +46,15 @@ private actor FakeMediaScripting: MediaScripting {
     }
 
     private var snapshots: [MediaApp: MediaSnapshot]
+    private var permitted: Set<MediaApp>
     private(set) var sent: [Sent] = []
     private(set) var snapshotRequests = 0
+    private(set) var artworkRequests: [TrackIdentity] = []
+    private(set) var permissionChecks = 0
 
-    init(_ snapshots: [MediaApp: MediaSnapshot] = [:]) {
+    init(_ snapshots: [MediaApp: MediaSnapshot] = [:], permitted: Set<MediaApp> = Set(MediaApp.allCases)) {
         self.snapshots = snapshots
+        self.permitted = permitted
     }
 
     func snapshot(of app: MediaApp) async -> MediaSnapshot? {
@@ -37,8 +67,22 @@ private actor FakeMediaScripting: MediaScripting {
         snapshots[app] = nil
     }
 
+    func artwork(for app: MediaApp, track: TrackIdentity) async -> Data? {
+        artworkRequests.append(track)
+        return artworkBytes
+    }
+
+    func hasAutomationPermission(for app: MediaApp) async -> Bool {
+        permissionChecks += 1
+        return permitted.contains(app)
+    }
+
     func replace(_ snapshots: [MediaApp: MediaSnapshot]) {
         self.snapshots = snapshots
+    }
+
+    func permit(_ app: MediaApp) {
+        permitted.insert(app)
     }
 }
 
@@ -177,4 +221,159 @@ private actor FakeMediaScripting: MediaScripting {
     let requests = await scripting.snapshotRequests
     #expect(requests == 0)
     #expect(controller.nowPlaying == nil)
+}
+
+// MARK: - Playback notifications
+
+@Test @MainActor func adoptsWhatANotificationAnnounces() async {
+    let controller = MediaController(scripting: FakeMediaScripting(), interval: fastInterval)
+
+    controller.handlePlaybackNotification(announcement("Teardrop", "Playing"), from: .spotify)
+
+    #expect(controller.nowPlaying?.title == "Teardrop")
+    #expect(controller.nowPlaying?.artist == "Someone")
+    #expect(controller.nowPlaying?.isPlaying == true)
+    #expect(controller.nowPlaying?.source == .spotify)
+}
+
+@Test @MainActor func ignoresANotificationWithNoTrackName() async {
+    let controller = MediaController(scripting: FakeMediaScripting(), interval: fastInterval)
+
+    controller.handlePlaybackNotification(["Player State": "Playing"], from: .music)
+
+    #expect(controller.nowPlaying == nil)
+}
+
+@Test @MainActor func ignoresANotificationWithNoPlayerState() async {
+    let controller = MediaController(scripting: FakeMediaScripting(), interval: fastInterval)
+
+    controller.handlePlaybackNotification(["Name": "Teardrop"], from: .music)
+
+    #expect(controller.nowPlaying == nil)
+}
+
+@Test @MainActor func stoppingClearsOnlyTheAppThatWasShowing() async {
+    let controller = MediaController(scripting: FakeMediaScripting(), interval: fastInterval)
+    controller.handlePlaybackNotification(announcement("Teardrop", "Playing"), from: .spotify)
+
+    controller.handlePlaybackNotification(["Player State": "Stopped"], from: .music)
+    #expect(controller.nowPlaying?.title == "Teardrop")
+
+    controller.handlePlaybackNotification(["Player State": "Stopped"], from: .spotify)
+    #expect(controller.nowPlaying == nil)
+}
+
+@Test @MainActor func aPausedAppNeverDisplacesAPlayingOne() async {
+    let controller = MediaController(scripting: FakeMediaScripting(), interval: fastInterval)
+    controller.handlePlaybackNotification(announcement("Teardrop", "Playing"), from: .spotify)
+
+    controller.handlePlaybackNotification(announcement("Blue in Green", "Paused"), from: .music)
+
+    #expect(controller.nowPlaying?.source == .spotify)
+}
+
+@Test @MainActor func publishesEveryAdoptedAnnouncement() async {
+    let controller = MediaController(scripting: FakeMediaScripting(), interval: fastInterval)
+    var announced: [NowPlaying?] = []
+    let subscription = controller.playbackEvents.sink { announced.append($0) }
+    defer { subscription.cancel() }
+
+    controller.handlePlaybackNotification(announcement("Teardrop", "Playing"), from: .spotify)
+    controller.handlePlaybackNotification(announcement("Teardrop", "Paused"), from: .spotify)
+
+    #expect(announced.count == 2)
+    #expect(announced.first??.isPlaying == true)
+    #expect(announced.last??.isPlaying == false)
+}
+
+// MARK: - Artwork
+
+@Test @MainActor func fetchesArtworkOncePerTrack() async throws {
+    let scripting = FakeMediaScripting([.music: playing(.music, "Blue in Green")])
+    let controller = MediaController(scripting: scripting, interval: fastInterval)
+
+    await controller.refresh()
+    await controller.refresh()
+    try await Task.sleep(for: settleTime)
+
+    #expect(controller.artwork != nil)
+    let requests = await scripting.artworkRequests
+    #expect(requests.map(\.title) == ["Blue in Green"])
+}
+
+@Test @MainActor func refetchesOnlyForTracksItHasNotSeen() async throws {
+    let scripting = FakeMediaScripting([.music: playing(.music, "Blue in Green")])
+    let controller = MediaController(scripting: scripting, interval: fastInterval)
+    await controller.refresh()
+
+    await scripting.replace([.music: playing(.music, "So What")])
+    await controller.refresh()
+    try await Task.sleep(for: settleTime)
+
+    // Back to a track that is still in the cache: no third round trip.
+    await scripting.replace([.music: playing(.music, "Blue in Green")])
+    await controller.refresh()
+    try await Task.sleep(for: settleTime)
+
+    let requests = await scripting.artworkRequests
+    #expect(requests.map(\.title) == ["Blue in Green", "So What"])
+    #expect(controller.artwork != nil)
+}
+
+@Test @MainActor func dropsTheArtworkWhenNothingIsPlaying() async throws {
+    let scripting = FakeMediaScripting([.music: playing(.music, "Blue in Green")])
+    let controller = MediaController(scripting: scripting, interval: fastInterval)
+    await controller.refresh()
+    try await Task.sleep(for: settleTime)
+    #expect(controller.artwork != nil)
+
+    await scripting.replace([:])
+    await controller.refresh()
+
+    #expect(controller.artwork == nil)
+}
+
+// MARK: - Automation permission gate
+
+@Test @MainActor func doesNotScriptForABackgroundTrackUntilPermissionIsGranted() async throws {
+    let scripting = FakeMediaScripting(permitted: [])
+    let controller = MediaController(scripting: scripting, interval: fastInterval)
+
+    controller.handlePlaybackNotification(announcement("Teardrop", "Playing"), from: .spotify)
+    try await Task.sleep(for: settleTime)
+
+    #expect(controller.artwork == nil)
+    let requests = await scripting.artworkRequests
+    #expect(requests.isEmpty)
+    let checks = await scripting.permissionChecks
+    #expect(checks == 1)
+}
+
+@Test @MainActor func fetchesForABackgroundTrackOncePermissionIsGranted() async throws {
+    let scripting = FakeMediaScripting(permitted: [])
+    let controller = MediaController(scripting: scripting, interval: fastInterval)
+    controller.handlePlaybackNotification(announcement("Teardrop", "Playing"), from: .spotify)
+    try await Task.sleep(for: settleTime)
+
+    await scripting.permit(.spotify)
+    controller.handlePlaybackNotification(announcement("Teardrop", "Playing"), from: .spotify)
+    try await Task.sleep(for: settleTime)
+
+    #expect(controller.artwork != nil)
+    let requests = await scripting.artworkRequests
+    #expect(requests.map(\.title) == ["Teardrop"])
+}
+
+@Test @MainActor func neverChecksPermissionForAUserInitiatedFetch() async throws {
+    // The poll only runs while the panel is open, so its fetches are the ones
+    // allowed to raise the Automation prompt.
+    let scripting = FakeMediaScripting([.music: playing(.music, "Blue in Green")], permitted: [])
+    let controller = MediaController(scripting: scripting, interval: fastInterval)
+
+    await controller.refresh()
+    try await Task.sleep(for: settleTime)
+
+    let checks = await scripting.permissionChecks
+    #expect(checks == 0)
+    #expect(controller.artwork != nil)
 }
