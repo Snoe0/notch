@@ -53,3 +53,33 @@ noted here because they are precisely the parts no test protects.
 **Deferred.** Media controls, file shelf, ambient HUDs, global hotkey, virtual
 notch on external displays, note search. All attach to `NotchChrome`'s content
 slot.
+
+---
+
+# Notch — v2 media controls, to-dos, open-sourcing
+
+Spec: `docs/superpowers/specs/2026-08-06-notch-v2-media-todos-opensource-design.md`
+
+Batch 1 — independent, run in parallel:
+
+- [ ] Task A — extract `PersistedFile` from `ScratchpadStore`; add `TodoStore`
+      with markdown checklist round-trip; unit tests
+- [ ] Task B — `MediaController` with `MediaScripting` protocol, osascript
+      adapter for Music + Spotify; source-selection unit tests
+- [ ] Task C — MIT LICENSE, public README rewrite, `Scripts/make-dmg.sh`,
+      CI + release GitHub workflows (Developer-ID-ready signing)
+
+Batch 2 — after A and B:
+
+- [ ] Task D — panel layout: `NotchChrome` top row (media | notch | empty),
+      `MediaControlsView`, `TodoListView`, `PanelContentView`, height 200→260,
+      wiring in controller/app
+
+Finish:
+
+- [ ] Full `swift test`, bundle, manual walkthrough
+- [ ] Review section below; user reviews; `gh repo create` + push on approval
+
+## Review
+
+(pending)
