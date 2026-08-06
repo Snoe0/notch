@@ -18,7 +18,7 @@ final class PlaceholderTextView: NSTextView {
         guard string.isEmpty, !placeholder.isEmpty else { return }
 
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .font: font ?? NSFont.systemFont(ofSize: 13),
             .foregroundColor: NSColor.white.withAlphaComponent(0.35),
         ]
         // Exactly where the first glyph of real text would be laid out.
@@ -27,6 +27,21 @@ final class PlaceholderTextView: NSTextView {
             y: textContainerInset.height
         )
         placeholder.draw(at: origin, withAttributes: attributes)
+    }
+}
+
+/// Fires once each time a request goes from off to on, and re-arms when it
+/// goes back off.
+///
+/// Focus in the panel is an edge, not a level: "the panel just became pinned"
+/// is a reason to claim the caret, "the panel is still pinned" is not. Kept
+/// out of the AppKit call below so the rule can be tested without a window.
+struct FocusRequestEdge {
+    private var wasRequested = false
+
+    mutating func fires(on requested: Bool) -> Bool {
+        defer { wasRequested = requested }
+        return requested && !wasRequested
     }
 }
 
@@ -46,7 +61,7 @@ struct ScratchpadTextView: NSViewRepresentable {
         textView.isSelectable = true
         textView.allowsUndo = true
         textView.drawsBackground = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.font = .systemFont(ofSize: 13)
         textView.textColor = .white
         textView.insertionPointColor = .white
         // Zero both so the placeholder origin above is simply (0, 0).
@@ -82,16 +97,38 @@ struct ScratchpadTextView: NSViewRepresentable {
         }
         textView.placeholder = placeholder
 
-        if shouldFocus, textView.window?.firstResponder !== textView {
-            textView.window?.makeFirstResponder(textView)
-        }
+        context.coordinator.claimFocusIfNewlyRequested(textView, shouldFocus: shouldFocus)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ScratchpadTextView
 
+        private var focusRequest = FocusRequestEdge()
+
         init(_ parent: ScratchpadTextView) {
             self.parent = parent
+        }
+
+        /// Takes the caret only as `shouldFocus` goes false → true.
+        ///
+        /// The panel becoming pinned is a reason to put the caret in the notes;
+        /// a later update pass is not. Claiming on every pass — as this used to
+        /// — snatched the caret back from the other field in the panel the
+        /// moment anything re-rendered, which is every keystroke. Clicking back
+        /// into this text view afterwards needs no help: `shouldFocus` stays
+        /// true the whole time the panel is pinned, and AppKit routes the click
+        /// to the text view itself.
+        ///
+        /// Even the edge yields, because the click that pins the panel can be
+        /// the one that lands in the add field: that field becomes first
+        /// responder while this pass is still pending.
+        @MainActor
+        func claimFocusIfNewlyRequested(_ textView: NSTextView, shouldFocus: Bool) {
+            // Off-screen: leave the edge unconsumed and try again next pass.
+            guard let window = textView.window else { return }
+            guard focusRequest.fires(on: shouldFocus) else { return }
+            guard !(window.firstResponder is NSText) else { return }
+            window.makeFirstResponder(textView)
         }
 
         func textDidChange(_ notification: Notification) {

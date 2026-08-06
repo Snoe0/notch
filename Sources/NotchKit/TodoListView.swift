@@ -3,12 +3,10 @@ import SwiftUI
 /// The checklist column: the todos, then the field that appends to them.
 public struct TodoListView: View {
     @ObservedObject var store: TodoStore
-    @State private var draft: String = ""
-    @FocusState private var isAddingTodo: Bool
 
-    /// Matches the scratchpad's monospaced face one step smaller, so the two
-    /// columns read as one surface.
-    private static let font = Font.system(size: 12, design: .monospaced)
+    /// Matches the scratchpad's face one step smaller, so the two columns read
+    /// as one surface.
+    private static let font = Font.system(size: 12)
 
     public init(store: TodoStore) {
         self.store = store
@@ -45,27 +43,14 @@ public struct TodoListView: View {
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    /// The placeholder is drawn rather than passed to `TextField`, whose own
-    /// prompt colour is not legible on black.
+    /// `isEditing` is what stops a reload from disk landing mid-word, so it has
+    /// to follow the caret, not the keystrokes.
     private var addField: some View {
-        ZStack(alignment: .leading) {
-            if draft.isEmpty {
-                Text("add a todo…")
-                    .foregroundStyle(.white.opacity(0.35))
-            }
-            TextField("", text: $draft)
-                .textFieldStyle(.plain)
-                .foregroundStyle(.white)
-                .focused($isAddingTodo)
-                .onSubmit(commitDraft)
-        }
-        .onChange(of: isAddingTodo) { _, focused in store.isEditing = focused }
-    }
-
-    /// The store drops blank input, so Return never needs a guard here.
-    private func commitDraft() {
-        store.add(draft)
-        draft = ""
+        TodoAddField(
+            placeholder: "add a todo…",
+            onCommit: { store.add($0) },
+            onEditingChange: { store.isEditing = $0 }
+        )
     }
 
     private func banner(_ message: String) -> some View {

@@ -4,9 +4,8 @@ import SwiftUI
 /// the right, split by a hairline. Each column carries its own padding, so
 /// this view adds none of its own.
 public struct PanelContentView: View {
-    /// Observed for `isEditing`: while the add field has focus the notes column
-    /// must not pull the caret back.
-    @ObservedObject var todos: TodoStore
+    /// Passed straight through: each column observes the store it draws.
+    let todos: TodoStore
     let scratchpad: ScratchpadStore
     let isPinned: Bool
 
@@ -24,11 +23,7 @@ public struct PanelContentView: View {
                 TodoListView(store: todos)
                     .frame(width: proxy.size.width * Self.todoColumnFraction)
                 divider
-                ScratchpadView(
-                    store: scratchpad,
-                    isPinned: isPinned,
-                    takesFocus: !todos.isEditing
-                )
+                ScratchpadView(store: scratchpad, isPinned: isPinned)
             }
         }
     }
