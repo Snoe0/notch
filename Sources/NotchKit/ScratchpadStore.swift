@@ -1,14 +1,14 @@
 import Foundation
 import Combine
 
-/// Owns `scratchpad.md`. The only type in the app that touches disk.
+/// Owns `scratchpad.md`. Disk work lives in its `PersistedFile`.
 @MainActor
 public final class ScratchpadStore: ObservableObject {
     /// The live buffer. Assigning to it schedules a debounced save.
     @Published public var text: String = "" {
         didSet {
-            guard text != lastLoadedText else { return }
-            scheduleSave()
+            guard !file.holdsText(text) else { return }
+            file.scheduleSave()
         }
     }
 
@@ -20,101 +20,46 @@ public final class ScratchpadStore: ObservableObject {
     @Published public private(set) var saveError: String?
 
     /// Number of completed disk writes. Instrumentation for tests.
-    public private(set) var writeCount = 0
+    public var writeCount: Int { file.writeCount }
 
-    public let fileURL: URL
-    public var directoryURL: URL { fileURL.deletingLastPathComponent() }
+    public var fileURL: URL { file.fileURL }
+    public var directoryURL: URL { file.directoryURL }
 
-    private let debounce: Duration
-    private var saveTask: Task<Void, Never>?
-    private var watcher: DispatchSourceFileSystemObject?
-    private var lastLoadedText = ""
+    private let file: PersistedFile
 
     public init(directory: URL, debounce: Duration = .milliseconds(500)) {
-        self.fileURL = directory.appending(path: "scratchpad.md")
-        self.debounce = debounce
-        load()
-        startWatching()
+        file = PersistedFile(name: "scratchpad.md", in: directory, debounce: debounce)
+        file.owner = self
+        loadFromDisk()
+        file.startWatching()
     }
-
-    deinit { watcher?.cancel() }
 
     /// The app's real notes location.
     public static var defaultDirectory: URL {
         URL.documentsDirectory.appending(path: "NotchNotes")
     }
 
-    // MARK: - Loading
-
-    private func load() {
-        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
-        lastLoadedText = contents
-        text = contents
-    }
-
-    private func reloadIfChangedExternally() {
-        guard !isEditing else { return }
-        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
-        guard contents != text else { return }
-        lastLoadedText = contents
-        text = contents
-    }
-
-    // MARK: - Saving
-
-    private func scheduleSave() {
-        saveTask?.cancel()
-        saveTask = Task { [debounce] in
-            try? await Task.sleep(for: debounce)
-            guard !Task.isCancelled else { return }
-            await self.write()
-        }
-    }
-
     /// Write immediately, bypassing the debounce. Called when the panel closes.
     public func flush() async {
-        saveTask?.cancel()
-        await write()
+        await file.flush()
     }
 
-    private func write() async {
-        let contents = text
-        do {
-            try FileManager.default.createDirectory(
-                at: directoryURL,
-                withIntermediateDirectories: true
-            )
-            try contents.write(to: fileURL, atomically: true, encoding: .utf8)
-            lastLoadedText = contents
-            writeCount += 1
-            saveError = nil
-        } catch {
-            saveError = error.localizedDescription
-        }
+    private func loadFromDisk() {
+        guard let contents = file.loadText() else { return }
+        text = contents
+    }
+}
+
+extension ScratchpadStore: PersistedFileOwner {
+    var persistedText: String { text }
+
+    var suppressesExternalReloads: Bool { isEditing }
+
+    func persistedFileChangedExternally(to contents: String) {
+        text = contents
     }
 
-    // MARK: - Watching
-
-    /// Watches the containing directory rather than the file, because atomic
-    /// writes swap the file's inode and orphan a file-level watcher.
-    private func startWatching() {
-        try? FileManager.default.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true
-        )
-        let descriptor = open(directoryURL.path, O_EVTONLY)
-        guard descriptor >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: descriptor,
-            eventMask: [.write, .rename],
-            queue: .main
-        )
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.reloadIfChangedExternally() }
-        }
-        source.setCancelHandler { close(descriptor) }
-        source.resume()
-        watcher = source
+    func persistedFileDidReportSaveError(_ message: String?) {
+        saveError = message
     }
 }
