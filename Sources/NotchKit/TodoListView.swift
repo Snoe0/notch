@@ -51,6 +51,15 @@ public struct TodoListView: View {
             onCommit: { store.add($0) },
             onEditingChange: { store.isEditing = $0 }
         )
+        // A faint well fades in while the field holds the caret. Drawn with
+        // negative padding so taking focus never shifts the layout under the
+        // caret it is highlighting.
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.white.opacity(store.isEditing ? 0.08 : 0))
+                .padding(-5)
+        }
+        .animation(.easeOut(duration: 0.18), value: store.isEditing)
     }
 
     private func banner(_ message: String) -> some View {
