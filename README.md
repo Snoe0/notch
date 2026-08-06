@@ -25,7 +25,7 @@ launches, finds no notch, and stays dormant.
 ## Install
 
 Download `Notch.dmg` from the
-[latest release](https://github.com/yurikorolev/notch/releases/latest), open it,
+[latest release](https://github.com/Snoe0/notch/releases/latest), open it,
 and drag Notch to Applications.
 
 Until notarized builds ship, the release DMG is ad-hoc signed, so Gatekeeper
