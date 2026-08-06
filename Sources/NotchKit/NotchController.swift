@@ -62,70 +62,46 @@ public final class NotchController {
 
     /// The panel accepts the mouse only while open, and the watched region
     /// grows to the whole panel so moving down into it does not close it.
-    ///
-    /// Collapsing orders the panel out rather than merely hiding its content.
-    /// That is what releases key status — `resignKey()` must never be called
-    /// directly — and it guarantees a collapsed panel can swallow nothing.
     private func apply(_ state: NotchState) {
         guard let geometry, let panel else { return }
         cursor.activeRect = state.isOpen ? geometry.openHoverRect : geometry.collapsedHoverRect
         panel.setInteractive(state.isOpen)
 
-        // Opening takes the lozenge away, which orders the window out; the
-        // switch below must have the last word, so this comes first.
+        // Opening takes the lozenge away; done first so the ordering switch
+        // below always has the last word.
         popouts.notchStateChanged(to: state)
 
         switch state {
-        case .collapsed: updateCollapsedPanel(forPopout: popouts.popout)
-        case .peek:      panel.alphaValue = 1; panel.orderFrontRegardless()
-        case .pinned:    panel.alphaValue = 1; panel.makeKeyAndOrderFront(nil)
+        case .collapsed: shedKeyKeepingPanelOnScreen()
+        case .peek:      panel.orderFrontRegardless()
+        case .pinned:    panel.makeKeyAndOrderFront(nil)
         }
 
         pollMediaWhileOpen(state)
         flushOnClose(state)
     }
 
-    /// A collapsed panel is normally ordered out, which is what releases key
-    /// status and guarantees it can swallow nothing. The now-playing lozenge
-    /// is the one thing that draws while collapsed, so the window comes back
-    /// for exactly as long as one is up — still ignoring the mouse, because
-    /// `setInteractive(false)` above already covers the collapsed state.
-    private func updateCollapsedPanel(forPopout popout: MediaPopout?) {
+    /// Collapsing must release key status — `resignKey()` must never be called
+    /// directly, and ordering out is what actually sheds it — but the window
+    /// itself stays on screen: transparent, mouse-ignoring, and live. It has
+    /// to, because SwiftUI does not reliably animate in a window that is off
+    /// screen — a now-playing chip inserted while the window was being ordered
+    /// back in committed straight to its final position instead of sliding out
+    /// of the notch. The out-and-back pair lands in one window-server
+    /// transaction, so nothing visibly blinks.
+    private func shedKeyKeepingPanelOnScreen() {
         guard let panel else { return }
-        if popout == nil {
-            panel.orderOut(nil)
-        } else {
-            // The window's backing store still holds the last frame drawn
-            // before it was ordered out — the full-width open surface, which
-            // extends past the notch on both sides. Ordering straight in
-            // flashes that stale frame for an instant, so the window comes
-            // back invisible and is revealed only after SwiftUI has had a
-            // runloop turn to commit the chip.
-            panel.alphaValue = 0
-            panel.orderFrontRegardless()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                panel.alphaValue = 1
-            }
-        }
+        panel.orderOut(nil)
+        panel.orderFrontRegardless()
     }
 
-    /// Playback announcements decide the lozenge; the lozenge decides whether
-    /// a collapsed panel is on screen at all.
+    /// Playback announcements decide the lozenge; the always-on-screen
+    /// collapsed panel means showing one needs no window management at all.
     private func watchForPlayback() {
         media.playbackEvents
             .sink { [weak self] nowPlaying in
                 guard let self else { return }
                 self.popouts.playbackChanged(to: nowPlaying, while: self.machine.state)
-            }
-            .store(in: &cancellables)
-
-        popouts.$popout
-            .sink { [weak self] popout in
-                // `@Published` fires before the property changes, so this can
-                // run mid-`apply` with a stale state. Ordering out in that
-                // window is harmless: `apply` re-orders the panel right after.
-                guard let self, self.machine.state == .collapsed else { return }
-                self.updateCollapsedPanel(forPopout: popout)
             }
             .store(in: &cancellables)
     }
@@ -202,12 +178,9 @@ public final class NotchController {
     /// mid-animation, then re-place the panel against the new geometry.
     ///
     /// After re-placing, the state is re-applied rather than ordering the
-    /// panel front unconditionally: `dismiss()` above already put the state
-    /// machine into `.collapsed`, whose normal handling is to order the panel
-    /// OUT. Calling `orderFrontRegardless()` here would fight that and leave
-    /// a visible-but-empty panel at the new position. Re-running `apply` with
-    /// the current (collapsed) state reconciles frame, hover rect, and
-    /// visibility from one source of truth instead of duplicating that logic.
+    /// panel front by hand: re-running `apply` with the current (collapsed)
+    /// state reconciles frame, hover rect, interactivity, and ordering from
+    /// one source of truth instead of duplicating that logic here.
     private func watchForScreenChanges() {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
