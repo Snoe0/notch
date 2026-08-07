@@ -1,154 +1,68 @@
-# Notch — v1 scratchpad
+# Notch — feedback round (2026-08-07)
 
-Plan: `docs/superpowers/plans/2026-07-31-notch-scratchpad.md`
-Spec: `docs/superpowers/specs/2026-07-31-notch-scratchpad-design.md`
+Nine features from user feedback plus a docs-image refresh and two mid-round
+additions, each implemented by a dedicated subagent with its own commit.
+Wave 1 ran in parallel (disjoint files); the notes-stack work ran sequentially.
+Previous milestone plans live in git history of this file.
 
-- [x] Task 0 — SwiftPM package, Info.plist, bundle script — `0f65f09`
-- [x] Task 1 — notch geometry from screen metrics — `5dfc2df`
-- [x] Task 2 — scratchpad store: debounced atomic writes, external reload — `6867686`
-- [x] Task 3 — collapsed/peek/pinned state machine — `b744a96`
-- [x] Task 4 — transparent non-activating panel under the notch — `4fe78fd`
-- [x] — geometry fix: asymmetric auxiliary areas — `cc4471b`
-- [x] Task 5 — global hover monitoring, click to pin — `e991161`
-- [x] Task 6 — notch chrome and content slot — `6df5235`
-- [x] Task 7 — scratchpad view wired to disk — `3741e54`
-- [x] Task 8 — menu bar, login item, display-change handling — `9135383`
-- [ ] Task 9 — end-to-end pass (**manual walkthrough pending**) and README
+## Wave 1 — parallel, disjoint files
 
-## Review
+- [x] Todos: long items wrap to multiple lines instead of truncating — `712e59e`
+- [x] Media: clicking the now-playing strip (artwork/title) opens the source app (Spotify / Apple Music) — `f6d7330`
+- [x] Animation: springy expand, quicker eased collapse, staggered content fade — `ca71ec5`
+- [x] Docs: re-render `docs/panel-open.png` and `docs/chip.png` on the Tahoe wallpaper instead of the gradient — `5158e17`
 
-**What was built.** A menu-bar-only app that pins a fixed-size transparent
-`NSPanel` under the notch and animates a scratchpad out of it on hover. Notes go
-to `~/Documents/NotchNotes/scratchpad.md`. Hover-to-peek, click-to-pin, Escape to
-close. No permission prompts.
+## Wave 2 — sequential, shared notes stack
 
-**Deviations from the spec.**
+- [x] Notes formatting: ==highlight== / <u>underline</u> markers, Cmd-U & Cmd-Shift-H, dim-amber readable highlight, auto-linked URLs — `8e5d127`
+- [x] Notes: "Aa" font menu in the top-right corner (System/Serif/Rounded/Mono, persisted) — `ea5488d` (superseded: moved into Settings by `5b74f57`)
+- [x] Notes: freehand sketch canvas (scribble toggle, 3 inks, JSON persistence beside the note) — `232c265`
+- [x] Notes: pop out into a floating always-on-top window, placeholder in the panel, no editor races — `7b938a8`
 
-1. *Geometry, corrected against hardware.* The spec assumed the notch is centred
-   on the screen. Measuring this machine showed the auxiliary areas are
-   asymmetric — 665pt left, 662pt right — putting the true notch at x 665–850,
-   1.5pt right of screen centre. The rect is now derived from the auxiliary
-   boundaries directly. A regression test pins the measured values.
+## Wave 3 — user additions (2026-08-07)
 
-2. *Escape monitor return type.* `NSEvent`'s `Sendable` conformance is
-   explicitly unavailable, so `MainActor.assumeIsolated` could not return an
-   `NSEvent?`. It returns a `Bool` and the event is selected outside the isolated
-   closure. Behaviour is identical.
+- [x] Pomodoro timer: right-flank strip + collapsed chip sliding from the notch's right edge, Glass sound on phase end — `4b9d3ce`
+- [x] Settings window (menu bar → Settings…, Cmd-,): feature toggles, flank/column layout, notes font (replaces the in-notes "Aa" control) — `5b74f57`
 
-3. *`AppDelegate.revealNotes()` isolation.* Declared `@MainActor` rather than
-   wrapping the body in `assumeIsolated`. `applicationDidFinishLaunching` gets
-   its isolation from the protocol; a plain method does not, and capturing a
-   nonisolated `self` into an isolated closure trips Swift 6's sending check.
+## Wrap-up
 
-4. *Screen-change handling.* The plan ordered the panel front after
-   repositioning. That fights the state machine, which was just dismissed to
-   `.collapsed` — it would leave a visible, empty panel at the new position.
-   The handler now re-applies the current state so visibility, frame, and hover
-   rect all reconcile from one source of truth.
-
-**Test coverage.** 22 tests across geometry, storage, and the state machine.
-Panel placement, chrome, animation, and focus behaviour were not automated —
-noted here because they are precisely the parts no test protects.
-
-**Deferred.** Media controls, file shelf, ambient HUDs, global hotkey, virtual
-notch on external displays, note search. All attach to `NotchChrome`'s content
-slot.
-
----
-
-# Notch — v2 media controls, to-dos, open-sourcing
-
-Spec: `docs/superpowers/specs/2026-08-06-notch-v2-media-todos-opensource-design.md`
-
-Batch 1 — independent, run in parallel:
-
-- [x] Task A — extract `PersistedFile` from `ScratchpadStore`; add `TodoStore`
-      with markdown checklist round-trip; unit tests — `4fbc1a1`
-- [x] Task B — `MediaController` with `MediaScripting` protocol, osascript
-      adapter for Music + Spotify; source-selection unit tests — `94efe62`
-- [x] Task C — MIT LICENSE, public README rewrite, `Scripts/make-dmg.sh`,
-      CI + release GitHub workflows (Developer-ID-ready signing) — `e6455b2`
-
-Batch 2 — after A and B:
-
-- [x] Task D — panel layout: `NotchChrome` top row (media | notch | empty),
-      `MediaControlsView`, `TodoListView`, `PanelContentView`, height 200→260,
-      wiring in controller/app
-
-Finish:
-
-- [x] Full `swift test` (52/52), clean build, `bundle.sh` → build/Notch.app
-- [ ] Manual walkthrough on hardware (**pending — needs a human at the notch**)
-- [ ] User reviews; `gh repo create yurikorolev/notch` + push on approval
+- [x] Full `swift test` pass after all merges — 149/149
+- [x] Push to origin/master
+- [x] Review section below
 
 ## Review
 
-**What was built.** Media controls (Music + Spotify over AppleScript, polled
-only while the panel is open) in the top-left strip beside the notch clearance;
-a todo checklist column left of the notes input, persisted to
-`~/Documents/NotchNotes/todos.md` as markdown checkboxes; MIT license, public
-README, `Scripts/make-dmg.sh`, and CI + release workflows whose Developer ID
-signing/notarization turns on via repo secrets alone. Panel height 200 → 260;
-everything else about the window, state machine, and hover story unchanged.
+**What was built.** Ten commits: todo titles wrap; the now-playing strip is
+click-through to Spotify/Apple Music (tap gesture, so transport buttons and
+focus are untouched); the panel expands with a soft spring and collapses with a
+quick ease, content fading in a beat behind the chrome; both README screenshots
+now sit on the Tahoe wallpaper; the scratchpad gained clickable auto-detected
+links, Cmd-U underline, Cmd-Shift-H highlight (dim amber at 0.3 alpha so white
+text stays ~10:1 readable), persisted as `==...==` / `<u>...</u>` markers in the
+plain markdown file; a freehand sketch canvas toggles in behind the notes
+(strokes as canonical JSON in `~/Documents/NotchNotes/sketch.json`, same
+debounced-atomic-write machinery); notes pop out into a floating `.floating`-
+level window with a placeholder left in the panel so only one editor is ever
+live; a pomodoro timer mirrors the media strip on the notch's right flank with
+its own collapsed chip and a permission-free Glass chime; and a Settings window
+(status-item menu → Settings…, Cmd-,) holds feature toggles, flank/column
+layout, and the notes font — the in-notes "Aa" control was removed the same
+day it shipped when the requirement moved settings out of the panel.
 
-**Deviations from the spec.**
+**Architecture notes.** Every feature followed the repo's existing seams:
+injected side effects (NSWorkspace opener, timer clock, UserDefaults) so logic
+is headless-testable; AppKit for anything touching events or first responders
+inside the non-activating panel; `PersistedFile` for all persistence. The notch
+band generalized from one flank to two, which is what made the pomodoro chip
+cheap. One `ScratchpadFontSetting` and one `PanelSettings` live on
+`NotchController` and are injected everywhere, so settings apply live in every
+host.
 
-1. *README Input Monitoring section rewritten, not preserved.* The spec said
-   keep it; the claim was stale — hover has polled `NSEvent.mouseLocation`
-   since `908a353` and needs no permission. The section now says "not
-   required" and keeps the history.
-2. *`MediaSnapshot` has no `isRunning`.* Not-running, no-track, and script
-   failure all collapse to `nil`, so the flag would permit contradictory
-   states.
-3. *`ScratchpadView` gained `takesFocus`.* With two text fields in the panel,
-   the scratchpad's focus-reclaim yanked the caret out of the todo add field;
-   the notes column now yields while the todo field is editing.
-4. *Top-strip width is measured, not derived from `expandedSize`.* The surface
-   only declares a minimum width, so the flank is computed from the actual
-   surface width and clipped, keeping content out from under the notch at any
-   width.
+**Test suite.** 83 → 149 tests, all passing at every merge point.
 
-**Test coverage.** 52 tests: geometry (incl. new height pins), state machine,
-scratchpad store, todo markdown round-trip, todo store persistence/reload,
-media source-selection and command routing against a fake scripting layer.
-Unautomated: panel feel, Automation prompt flow, DMG install — the manual
-walkthrough covers them.
-
-**Owner to-do.** Screenshot for `docs/screenshot.png` (README lines ready,
-commented out); create `yurikorolev/notch` and push after review; add signing
-secrets when the Developer ID arrives (names documented at the top of
-`release.yml`); verify the Xcode pin on the first CI run.
-
----
-
-# Notch — v2.1 fixes and media polish
-
-Spec: v2.1 addendum in the v2 design doc.
-
-- [x] Task E — fix the add-todo field: focus grabbed on pinned transition
-      only; add field backed by `NSTextField` — `git log` (fix: stop the
-      scratchpad stealing focus…); also switched all panel text from
-      monospaced to SF Pro at the owner's request
-- [x] Task F — album artwork (per-track fetch + cache), distributed-
-      notification listeners, ~3s now-playing popout while collapsed,
-      silent Automation-permission gate for background scripting
-- [x] Full `swift test` (81/81), zero-warning build, bundle ok
-- [ ] User re-test on hardware: add-field typing, caret visibility, popout
-      show/expiry/hover-takeover, Automation prompt only on first open,
-      artwork in strip and popout
-
-## v2.1 review
-
-Focus root cause: continuous `makeFirstResponder` from `updateNSView` raced
-the SwiftUI-published editing flag and always won; now edge-triggered via a
-tested pure value type, and the add field is an AppKit `NSTextField` (Return
-commits without ending editing). `takesFocus` workaround removed as dead.
-Lesson recorded in `tasks/lessons.md`.
-
-Media: `nowPlaying` now also fed by the public distributed notifications both
-players broadcast, so state stays fresh while collapsed with zero polling;
-popout decision logic lives in `PopoutPresenter` (pure, tested); collapsed
-panel is re-ordered in, still mouse-transparent, only while a lozenge is up.
-Background AppleScript is gated on `AEDeterminePermissionToAutomateTarget`
-already-granted so the prompt stays a first-open event. Artwork cached per
-track (last 4, misses included).
+**Not verified headlessly — needs a hand pass on hardware.** Animation feel;
+key-equivalent routing (Cmd-U / Cmd-Shift-H) and link clicks in the
+non-activating panel; menu behavior of the settings and font controls; sketch
+flush on fast collapse; pop-out focus flow and window frame persistence; flank
+swapping and the both-columns-off degenerate layout; pomodoro chip slide on the
+right edge; completion sound audibility.
