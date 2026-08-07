@@ -7,13 +7,17 @@ struct NotchApp: App {
 
     var body: some Scene {
         MenuBarExtra("Notch", systemImage: "note.text") {
-            MenuContent(revealNotes: { delegate.revealNotes() })
+            MenuContent(
+                revealNotes: { delegate.revealNotes() },
+                showSettings: { delegate.showSettings() }
+            )
         }
     }
 }
 
 private struct MenuContent: View {
     let revealNotes: () -> Void
+    let showSettings: () -> Void
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
     var body: some View {
@@ -21,6 +25,8 @@ private struct MenuContent: View {
         Toggle("Launch at Login", isOn: $launchAtLogin)
             .onChange(of: launchAtLogin) { _, enabled in LaunchAtLogin.set(enabled) }
         Divider()
+        Button("Settings…", action: showSettings)
+            .keyboardShortcut(",")
         Button("Quit Notch") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
     }
@@ -40,5 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func revealNotes() {
         controller?.revealNotes()
+    }
+
+    @MainActor
+    func showSettings() {
+        controller?.showSettings()
     }
 }

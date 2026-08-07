@@ -22,10 +22,13 @@ public struct PomodoroChip: Equatable, Sendable {
 /// flank to live in, so it hugs its content and fills the band's height.
 struct PomodoroChipView: View {
     let chip: PomodoroChip
-    /// How much of the chip's leading end sits under the physical notch —
-    /// the mirror of the now-playing chip's trailing overhang, closing the
-    /// same potential seam on the other side.
+    /// How much of the chip's notch-side end sits under the physical notch —
+    /// the mirror of the now-playing chip's overhang, closing the same
+    /// potential seam on the other side.
     let notchOverhang: CGFloat
+    /// Which side the notch is on — leading on the trailing flank, trailing
+    /// when settings put the pomodoro strip on the other one.
+    var notchEdge: HorizontalEdge = .leading
 
     var body: some View {
         HStack(spacing: 6) {
@@ -36,11 +39,11 @@ struct PomodoroChipView: View {
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(.white)
         }
-        .padding(.leading, 11 + notchOverhang)
-        .padding(.trailing, 12)
+        .padding(.leading, notchEdge == .leading ? 11 + notchOverhang : 12)
+        .padding(.trailing, notchEdge == .trailing ? 11 + notchOverhang : 12)
         // Fills the notch band rather than sizing to the row, so the black
         // reaches the screen edge above and the notch's own bottom below.
         .frame(maxHeight: .infinity)
-        .notchChipSurface(notchEdge: .leading)
+        .notchChipSurface(notchEdge: notchEdge)
     }
 }

@@ -1,25 +1,35 @@
 import SwiftUI
 
-/// The media strip that sits to the left of the notch. One line: what is
-/// playing, then the transport. Sized for roughly 215×32pt, so everything
+/// The media strip beside the notch. One line: what is playing, then the
+/// transport hugging the notch. Sized for roughly 215×32pt, so everything
 /// truncates rather than wraps.
 public struct MediaControlsView: View {
     @ObservedObject var media: MediaController
+    /// Which flank of the notch the strip occupies. The layout mirrors with
+    /// it, so the transport stays against the notch on either side.
+    let flank: HorizontalEdge
 
-    public init(media: MediaController) {
+    public init(media: MediaController, flank: HorizontalEdge = .leading) {
         self.media = media
+        self.flank = flank
     }
 
     public var body: some View {
         HStack(spacing: 6) {
-            nowPlayingArea
-            Spacer(minLength: 4)
-            transport
+            if flank == .leading {
+                nowPlayingArea
+                Spacer(minLength: 4)
+                transport
+            } else {
+                transport
+                Spacer(minLength: 4)
+                nowPlayingArea
+            }
         }
-        // Leading matches the todo column below; trailing hugs the notch,
-        // which provides its own visual margin.
-        .padding(.leading, 18)
-        .padding(.trailing, 6)
+        // The outer edge matches the column below; the notch edge keeps just
+        // a sliver, because the notch provides its own visual margin.
+        .padding(.leading, flank == .leading ? 18 : 6)
+        .padding(.trailing, flank == .leading ? 6 : 18)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

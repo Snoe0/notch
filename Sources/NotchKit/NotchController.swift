@@ -14,7 +14,13 @@ public final class NotchController {
     private let popouts = PopoutPresenter()
     private let pomodoro = PomodoroTimer()
     private let notesPopout = NotesPopoutPresenter()
+    private let settings = PanelSettings()
+    /// One instance for the whole app: the panel column, the floating notes
+    /// window, and the settings form all observe it, so a font picked in
+    /// Settings lands in every host at once.
+    private let fontSetting = ScratchpadFontSetting()
     private var notesWindow: NotesPopoutWindowController?
+    private var settingsWindow: SettingsWindowController?
     private var panel: NotchPanel?
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
@@ -36,18 +42,24 @@ public final class NotchController {
             content: NotchRoot(
                 machine: machine,
                 popouts: popouts,
+                settings: settings,
                 store: store,
                 todos: todos,
                 media: media,
                 pomodoro: pomodoro,
                 notesPopout: notesPopout,
+                fontSetting: fontSetting,
                 notchSize: geometry.notchRect.size
             )
         )
         panel.setInteractive(false)
         panel.orderFrontRegardless()
         self.panel = panel
-        notesWindow = NotesPopoutWindowController(presenter: notesPopout, store: store)
+        notesWindow = NotesPopoutWindowController(
+            presenter: notesPopout,
+            store: store,
+            fontSetting: fontSetting
+        )
 
         cursor.activeRect = geometry.collapsedHoverRect
         cursor.onChange = { [weak self] inside in
@@ -61,6 +73,7 @@ public final class NotchController {
 
         watchForPlayback()
         watchForNotesPopout()
+        watchForMediaSetting()
         watchForPomodoroCompletions()
         watchForClicks()
         watchForKeyLoss()
@@ -145,12 +158,32 @@ public final class NotchController {
 
     /// Each poll tick costs an `osascript` round trip, so polling runs only
     /// while the panel is open — which is also why the Automation prompt
-    /// appears on first open rather than at launch. Only the transition acts:
-    /// re-starting on peek → pinned would reset the tick for nothing.
+    /// appears on first open rather than at launch — and only while the media
+    /// strip is enabled at all: with the strip and its chip both off, a poll
+    /// would fetch state nothing draws. Only the transition acts: re-starting
+    /// on peek → pinned would reset the tick for nothing.
     private func pollMediaWhileOpen(_ state: NotchState) {
-        guard state.isOpen != isPollingMedia else { return }
-        isPollingMedia = state.isOpen
-        if state.isOpen {
+        updateMediaPolling(state: state, showsMedia: settings.showsMedia)
+    }
+
+    /// The settings toggle feeds the same reconciliation as the state machine,
+    /// with the incoming value — `$showsMedia` emits before the property is
+    /// written, so reading `settings` here would see the old one.
+    private func watchForMediaSetting() {
+        settings.$showsMedia
+            .dropFirst()
+            .sink { [weak self] showsMedia in
+                guard let self else { return }
+                self.updateMediaPolling(state: self.machine.state, showsMedia: showsMedia)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateMediaPolling(state: NotchState, showsMedia: Bool) {
+        let shouldPoll = state.isOpen && showsMedia
+        guard shouldPoll != isPollingMedia else { return }
+        isPollingMedia = shouldPoll
+        if shouldPoll {
             media.startPolling()
         } else {
             media.stopPolling()
@@ -240,6 +273,16 @@ public final class NotchController {
         }
     }
 
+    /// Created lazily rather than in `start()`: the settings window must work
+    /// even on a Mac without a notch, where `start()` bails before wiring
+    /// anything — the panel may be dormant, but its configuration is not.
+    public func showSettings() {
+        let window = settingsWindow
+            ?? SettingsWindowController(settings: settings, fontSetting: fontSetting)
+        settingsWindow = window
+        window.show()
+    }
+
     public func revealNotes() {
         try? FileManager.default.createDirectory(
             at: store.directoryURL,
@@ -249,44 +292,70 @@ public final class NotchController {
     }
 }
 
-/// Bridges the observable state machine into the chrome.
+/// Bridges the observable state machine and the settings into the chrome.
 private struct NotchRoot: View {
     @ObservedObject var machine: NotchStateMachine
     @ObservedObject var popouts: PopoutPresenter
+    @ObservedObject var settings: PanelSettings
     let store: ScratchpadStore
     let todos: TodoStore
     @ObservedObject var media: MediaController
     @ObservedObject var pomodoro: PomodoroTimer
     let notesPopout: NotesPopoutPresenter
+    let fontSetting: ScratchpadFontSetting
     let notchSize: CGSize
 
     /// The pomodoro chip mirrors the now-playing lozenge but needs no
     /// presenter: it has no expiry and no announcement policy — it is up
-    /// exactly while the timer runs, and the chrome already ignores it
-    /// whenever the panel is open.
+    /// exactly while the timer runs and its surface is enabled, and the
+    /// chrome already ignores it whenever the panel is open.
     private var pomodoroChip: PomodoroChip? {
-        guard pomodoro.isRunning else { return nil }
+        guard settings.showsPomodoro, pomodoro.isRunning else { return nil }
         return PomodoroChip(phase: pomodoro.phase, remaining: pomodoro.remaining)
+    }
+
+    private var mediaFlank: HorizontalEdge {
+        settings.swapsFlanks ? .trailing : .leading
     }
 
     var body: some View {
         NotchChrome(
             state: machine.state,
             notchSize: notchSize,
-            popout: popouts.popout,
+            popout: settings.showsMedia ? popouts.popout : nil,
             artwork: media.artwork,
-            pomodoroChip: pomodoroChip
+            pomodoroChip: pomodoroChip,
+            mediaFlank: mediaFlank,
+            showsContent: settings.showsTodos || settings.showsNotes
         ) {
-            MediaControlsView(media: media)
+            strip(on: .leading)
         } topTrailing: {
-            PomodoroControlsView(timer: pomodoro)
+            strip(on: .trailing)
         } content: {
             PanelContentView(
                 todos: todos,
                 scratchpad: store,
                 notesPopout: notesPopout,
-                isPinned: machine.state == .pinned
+                fontSetting: fontSetting,
+                isPinned: machine.state == .pinned,
+                showsTodos: settings.showsTodos,
+                showsNotes: settings.showsNotes,
+                swapsColumns: settings.swapsColumns
             )
+        }
+    }
+
+    /// The strip a flank shows: media on `mediaFlank`, pomodoro on the other,
+    /// either one absent when its settings toggle is off. The flank is passed
+    /// along so each strip mirrors itself against the notch.
+    @ViewBuilder
+    private func strip(on flank: HorizontalEdge) -> some View {
+        if flank == mediaFlank {
+            if settings.showsMedia {
+                MediaControlsView(media: media, flank: flank)
+            }
+        } else if settings.showsPomodoro {
+            PomodoroControlsView(timer: pomodoro, flank: flank)
         }
     }
 }

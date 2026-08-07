@@ -1,25 +1,36 @@
 import SwiftUI
 
-/// The pomodoro strip that sits to the right of the notch, mirroring the media
-/// strip on the left: transport-style buttons against the notch, the readout
-/// at the outer edge. Sized for the same roughly 215×32pt flank.
+/// The pomodoro strip beside the notch, mirroring the media strip on the
+/// other flank: transport-style buttons against the notch, the readout at the
+/// outer edge. Sized for the same roughly 215×32pt flank.
 public struct PomodoroControlsView: View {
     @ObservedObject var timer: PomodoroTimer
+    /// Which flank of the notch the strip occupies. The layout mirrors with
+    /// it, so the buttons stay against the notch on either side.
+    let flank: HorizontalEdge
 
-    public init(timer: PomodoroTimer) {
+    public init(timer: PomodoroTimer, flank: HorizontalEdge = .trailing) {
         self.timer = timer
+        self.flank = flank
     }
 
     public var body: some View {
         HStack(spacing: 6) {
-            controls
-            Spacer(minLength: 4)
-            readout
+            if flank == .trailing {
+                controls
+                Spacer(minLength: 4)
+                readout
+            } else {
+                readout
+                Spacer(minLength: 4)
+                controls
+            }
         }
-        // Mirror of the media strip's padding: leading hugs the notch, which
-        // provides its own visual margin; trailing matches the notes column.
-        .padding(.leading, 6)
-        .padding(.trailing, 18)
+        // Mirror of the media strip's padding: the notch edge keeps just a
+        // sliver, because the notch provides its own visual margin; the outer
+        // edge matches the column below.
+        .padding(.leading, flank == .trailing ? 6 : 18)
+        .padding(.trailing, flank == .trailing ? 18 : 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

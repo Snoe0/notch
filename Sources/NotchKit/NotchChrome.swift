@@ -6,14 +6,17 @@ import SwiftUI
 /// physical notch is, never what is drawn around it.
 ///
 /// While the notch is collapsed the same frame is where the chips appear —
-/// now-playing on the leading flank, the running pomodoro on the trailing one
-/// — so the chrome also knows how to slide them out beside the notch.
+/// now-playing on whichever flank the media strip occupies, the running
+/// pomodoro on the other — so the chrome also knows how to slide them out
+/// beside the notch.
 public struct NotchChrome<TopLeading: View, TopTrailing: View, Content: View>: View {
     private let state: NotchState
     private let notchSize: CGSize
     private let popout: MediaPopout?
     private let artwork: NSImage?
     private let pomodoroChip: PomodoroChip?
+    private let mediaFlank: HorizontalEdge
+    private let showsContent: Bool
     private let topLeading: () -> TopLeading
     private let topTrailing: () -> TopTrailing
     private let content: () -> Content
@@ -30,12 +33,19 @@ public struct NotchChrome<TopLeading: View, TopTrailing: View, Content: View>: V
 
     /// The artwork travels beside the popout rather than inside it, because it
     /// is fetched separately and often arrives once the chip is already up.
+    ///
+    /// `mediaFlank` names the flank the now-playing chip emerges on — the
+    /// pomodoro chip takes the other — so the chips always follow their strips
+    /// when settings swap the flanks. `showsContent` collapses the surface to
+    /// just the notch band when settings have turned both columns off.
     public init(
         state: NotchState,
         notchSize: CGSize,
         popout: MediaPopout? = nil,
         artwork: NSImage? = nil,
         pomodoroChip: PomodoroChip? = nil,
+        mediaFlank: HorizontalEdge = .leading,
+        showsContent: Bool = true,
         @ViewBuilder topLeading: @escaping () -> TopLeading,
         @ViewBuilder topTrailing: @escaping () -> TopTrailing,
         @ViewBuilder content: @escaping () -> Content
@@ -45,6 +55,8 @@ public struct NotchChrome<TopLeading: View, TopTrailing: View, Content: View>: V
         self.popout = popout
         self.artwork = artwork
         self.pomodoroChip = pomodoroChip
+        self.mediaFlank = mediaFlank
+        self.showsContent = showsContent
         self.topLeading = topLeading
         self.topTrailing = topTrailing
         self.content = content
@@ -88,13 +100,18 @@ public struct NotchChrome<TopLeading: View, TopTrailing: View, Content: View>: V
         )
     }
 
+    /// With both columns off the surface is just the notch band: the frame
+    /// stops stretching downwards, so the black hugs the strips instead of
+    /// hanging an empty sheet under them.
     private var surface: some View {
         VStack(spacing: 0) {
             topStrip
-            content()
-                .transition(Self.slotFade)
+            if showsContent {
+                content()
+                    .transition(Self.slotFade)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: showsContent ? .infinity : nil)
         .frame(minWidth: notchSize.width)
         .notchSurface()
     }
@@ -112,22 +129,36 @@ public struct NotchChrome<TopLeading: View, TopTrailing: View, Content: View>: V
     /// so everything underneath stays clickable throughout.
     private var chipBand: some View {
         notchBand(overhang: Self.notchOverhang) {
+            flankChip(on: .leading)
+        } trailing: {
+            flankChip(on: .trailing)
+        }
+    }
+
+    /// The chip a flank shows: now-playing on `mediaFlank`, pomodoro on the
+    /// other. The slide and the chip's notch edge belong to the flank, not the
+    /// chip — whichever chip lives there emerges from that flank's notch side.
+    @ViewBuilder
+    private func flankChip(on flank: HorizontalEdge) -> some View {
+        let notchEdge: HorizontalEdge = flank == .leading ? .trailing : .leading
+        let slide = flank == .leading ? Self.slideOutOfNotchLeading : Self.slideOutOfNotchTrailing
+        if flank == mediaFlank {
             if let popout {
                 MediaPopoutView(
                     popout: popout,
                     artwork: artwork,
-                    notchOverhang: Self.notchOverhang
+                    notchOverhang: Self.notchOverhang,
+                    notchEdge: notchEdge
                 )
-                .transition(Self.slideOutOfNotchLeading)
+                .transition(slide)
             }
-        } trailing: {
-            if let pomodoroChip {
-                PomodoroChipView(
-                    chip: pomodoroChip,
-                    notchOverhang: Self.notchOverhang
-                )
-                .transition(Self.slideOutOfNotchTrailing)
-            }
+        } else if let pomodoroChip {
+            PomodoroChipView(
+                chip: pomodoroChip,
+                notchOverhang: Self.notchOverhang,
+                notchEdge: notchEdge
+            )
+            .transition(slide)
         }
     }
 
@@ -154,8 +185,7 @@ public struct NotchChrome<TopLeading: View, TopTrailing: View, Content: View>: V
 
     /// The band the physical notch covers: a usable slot on each side of it and
     /// dead space in the middle. The surface is centred on the notch, so the
-    /// two flanks are equal — media on the leading one, pomodoro on the
-    /// trailing one.
+    /// two flanks are equal — the caller decides which strip takes which.
     private var topStrip: some View {
         notchBand {
             topLeading()
@@ -241,8 +271,8 @@ extension View {
     /// A notch chip: the same black and the same corner idiom, square on the
     /// three edges it shares with something — the screen top, and the notch on
     /// whichever side `notchEdge` names — and rounded only on the outer bottom
-    /// corner it turns back on. The now-playing chip keeps the notch on its
-    /// trailing side; the pomodoro chip mirrors it.
+    /// corner it turns back on. Each chip keeps the notch on the side its
+    /// flank dictates, so a chip on either flank mirrors the other.
     ///
     /// Deliberately lighter than `notchSurface`: no border, no shadow. The chip
     /// lives *inside* the notch band rather than hanging below it, and the

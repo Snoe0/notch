@@ -56,13 +56,15 @@ final class NotesPopoutPanel: NSPanel {
 final class NotesPopoutWindowController: NSObject, NSWindowDelegate {
     private let presenter: NotesPopoutPresenter
     private let store: ScratchpadStore
+    private let fontSetting: ScratchpadFontSetting
     private var panel: NotesPopoutPanel?
 
     private static let autosaveName = "NotesPopout"
 
-    init(presenter: NotesPopoutPresenter, store: ScratchpadStore) {
+    init(presenter: NotesPopoutPresenter, store: ScratchpadStore, fontSetting: ScratchpadFontSetting) {
         self.presenter = presenter
         self.store = store
+        self.fontSetting = fontSetting
     }
 
     func show() {
@@ -91,8 +93,14 @@ final class NotesPopoutWindowController: NSObject, NSWindowDelegate {
     /// The same column the panel shows, with clearance for the close box in
     /// the hidden title bar.
     private var windowRoot: some View {
-        ScratchpadView(store: store, popout: presenter, isPinned: true, isPopoutWindow: true)
-            .padding(.top, 14)
+        ScratchpadView(
+            store: store,
+            popout: presenter,
+            fontSetting: fontSetting,
+            isPinned: true,
+            isPopoutWindow: true
+        )
+        .padding(.top, 14)
     }
 
     private func makePanel() -> NotesPopoutPanel {

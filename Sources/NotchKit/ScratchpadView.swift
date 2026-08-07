@@ -3,7 +3,9 @@ import SwiftUI
 public struct ScratchpadView: View {
     @ObservedObject var store: ScratchpadStore
     @ObservedObject var popout: NotesPopoutPresenter
-    @StateObject private var fontSetting = ScratchpadFontSetting()
+    /// Shared across every host — the panel column and the floating window —
+    /// so a font picked in Settings lands in all of them at once.
+    @ObservedObject var fontSetting: ScratchpadFontSetting
     @StateObject private var sketchStore: SketchStore
     /// Deliberately not persisted: the panel always reopens on the notes.
     @State private var mode: Mode = .text
@@ -19,14 +21,16 @@ public struct ScratchpadView: View {
 
     private static let textSize: CGFloat = 13
 
-    public init(
+    init(
         store: ScratchpadStore,
         popout: NotesPopoutPresenter,
+        fontSetting: ScratchpadFontSetting,
         isPinned: Bool,
         isPopoutWindow: Bool = false
     ) {
         self.store = store
         self.popout = popout
+        self.fontSetting = fontSetting
         self.isPinned = isPinned
         self.isPopoutWindow = isPopoutWindow
         // The sketch lives beside the markdown, in the same folder.
@@ -108,9 +112,9 @@ public struct ScratchpadView: View {
     // MARK: - Corner controls
 
     /// The cluster in the notes' top-right corner: ink swatches and clear
-    /// while sketching, then the sketch toggle and the font menu. Same rule
-    /// as the media transport for every one of them: the notes text is the
-    /// panel's only focusable control.
+    /// while sketching, then the pin and the sketch toggle. Same rule as the
+    /// media transport for every one of them: the notes text is the panel's
+    /// only focusable control. The typeface is picked in Settings, not here.
     private var cornerControls: some View {
         HStack(spacing: 8) {
             if mode == .sketch {
@@ -121,7 +125,6 @@ public struct ScratchpadView: View {
                 popOutButton
             }
             sketchToggle
-            fontMenu
         }
     }
 
@@ -162,34 +165,6 @@ public struct ScratchpadView: View {
             .foregroundStyle(.white.opacity(0.6))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// A small "Aa" in the notes' top-right corner that picks the typeface.
-    /// An NSMenu-backed `Menu` rather than anything focusable: menu tracking
-    /// runs in its own session and never touches first responder, so picking
-    /// a font leaves the caret exactly where it was in the text.
-    private var fontMenu: some View {
-        Menu {
-            Picker("Notes font", selection: $fontSetting.choice) {
-                ForEach(ScratchpadFont.allCases) { font in
-                    Text(font.displayName).tag(font)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            Text("Aa")
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 20, height: 16)
-                .contentShape(.rect)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .focusable(false)
-        .foregroundStyle(.white.opacity(0.35))
-        .help("Notes font")
     }
 
     /// Flips the column between typed notes and the sketch canvas. A plain

@@ -14,10 +14,13 @@ import SwiftUI
 struct MediaPopoutView: View {
     let popout: MediaPopout
     let artwork: NSImage?
-    /// How much of the chip's trailing end sits under the physical notch. The
-    /// black extends that far so no seam can open between chip and cutout;
+    /// How much of the chip's notch-side end sits under the physical notch.
+    /// The black extends that far so no seam can open between chip and cutout;
     /// the content padding grows by the same amount so the bars stay visible.
     let notchOverhang: CGFloat
+    /// Which side the notch is on — trailing on the leading flank, leading
+    /// when settings put the media strip on the other one.
+    var notchEdge: HorizontalEdge = .trailing
 
     var body: some View {
         HStack(spacing: 8) {
@@ -27,12 +30,12 @@ struct MediaPopoutView: View {
             TrackLabel(title: popout.title, artist: popout.artist, size: 11)
             EqualizerBars()
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 11 + notchOverhang)
+        .padding(.leading, notchEdge == .leading ? 11 + notchOverhang : 12)
+        .padding(.trailing, notchEdge == .trailing ? 11 + notchOverhang : 12)
         // Fills the notch band rather than sizing to the row, so the black
         // reaches the screen edge above and the notch's own bottom below.
         .frame(maxHeight: .infinity)
-        .notchChipSurface()
+        .notchChipSurface(notchEdge: notchEdge)
     }
 }
 
