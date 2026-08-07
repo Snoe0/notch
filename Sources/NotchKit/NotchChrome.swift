@@ -5,14 +5,17 @@ import SwiftUI
 /// the content slot below it. Both are slots — the chrome only knows where the
 /// physical notch is, never what is drawn around it.
 ///
-/// While the notch is collapsed the same frame is where the now-playing chip
-/// appears, so the chrome also knows how to slide one out beside the notch.
-public struct NotchChrome<TopLeading: View, Content: View>: View {
+/// While the notch is collapsed the same frame is where the chips appear —
+/// now-playing on the leading flank, the running pomodoro on the trailing one
+/// — so the chrome also knows how to slide them out beside the notch.
+public struct NotchChrome<TopLeading: View, TopTrailing: View, Content: View>: View {
     private let state: NotchState
     private let notchSize: CGSize
     private let popout: MediaPopout?
     private let artwork: NSImage?
+    private let pomodoroChip: PomodoroChip?
     private let topLeading: () -> TopLeading
+    private let topTrailing: () -> TopTrailing
     private let content: () -> Content
 
     /// Expanding rides a gentle spring with just enough give to settle softly;
@@ -32,14 +35,18 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
         notchSize: CGSize,
         popout: MediaPopout? = nil,
         artwork: NSImage? = nil,
+        pomodoroChip: PomodoroChip? = nil,
         @ViewBuilder topLeading: @escaping () -> TopLeading,
+        @ViewBuilder topTrailing: @escaping () -> TopTrailing,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.state = state
         self.notchSize = notchSize
         self.popout = popout
         self.artwork = artwork
+        self.pomodoroChip = pomodoroChip
         self.topLeading = topLeading
+        self.topTrailing = topTrailing
         self.content = content
     }
 
@@ -60,6 +67,10 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
         // the ease — one symmetric transition, two feels.
         .animation(state.isOpen ? Self.expand : Self.collapse, value: state)
         .animation(Self.chipSlide, value: popout)
+        // Keyed on presence, not the chip value: the countdown re-renders the
+        // chip every second, and only appearing and disappearing should ride
+        // the slide's spring.
+        .animation(Self.chipSlide, value: pomodoroChip != nil)
     }
 
     private static var dropIn: AnyTransition {
@@ -88,27 +99,34 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
         .notchSurface()
     }
 
-    /// Sits in the notch band itself, right edge against the notch, growing
-    /// leftwards into the flank. Non-interactive by construction: while
-    /// collapsed the panel ignores mouse events entirely.
+    /// Sits in the notch band itself, each chip with its edge against the
+    /// notch, growing outwards into its flank. Non-interactive by
+    /// construction: while collapsed the panel ignores mouse events entirely.
     ///
     /// The band is always here while the notch is collapsed, empty or not, so
-    /// the chip is the only thing that ever animates: were the clip itself
-    /// coming and going, SwiftUI would fade it in and out around the slide.
+    /// the chips are the only things that ever animate: were the clip itself
+    /// coming and going, SwiftUI would fade it in and out around the slides.
     ///
-    /// Accepted trade-off: for the ~3 seconds it is up, the chip may cover menu
-    /// titles of an app whose menus reach the notch's left flank. It is
-    /// mouse-transparent, so the menus stay clickable throughout and the band
-    /// is its own again a moment later.
+    /// Accepted trade-off: while up, a chip may cover menu titles or status
+    /// items that reach the notch's flanks. Both chips are mouse-transparent,
+    /// so everything underneath stays clickable throughout.
     private var chipBand: some View {
-        notchBand(alignment: .trailing, overhang: Self.notchOverhang) {
+        notchBand(overhang: Self.notchOverhang) {
             if let popout {
                 MediaPopoutView(
                     popout: popout,
                     artwork: artwork,
                     notchOverhang: Self.notchOverhang
                 )
-                .transition(Self.slideOutOfNotch)
+                .transition(Self.slideOutOfNotchLeading)
+            }
+        } trailing: {
+            if let pomodoroChip {
+                PomodoroChipView(
+                    chip: pomodoroChip,
+                    notchOverhang: Self.notchOverhang
+                )
+                .transition(Self.slideOutOfNotchTrailing)
             }
         }
     }
@@ -121,54 +139,69 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
     /// `NotchGeometry.topOvershoot`.
     static var notchOverhang: CGFloat { 12 }
 
-    /// The chip leaves the way it came in. `move(edge: .trailing)` offsets it by
-    /// its own width, which lands it exactly behind the notch, and the band's
-    /// clip takes it from there — so it emerges from under the hardware rather
-    /// than fading in place.
-    private static var slideOutOfNotch: AnyTransition {
+    /// The chips leave the way they came in. Moving toward its own notch-side
+    /// edge offsets a chip by its own width, which lands it exactly behind the
+    /// notch, and the band's clip takes it from there — so each chip emerges
+    /// from under the hardware rather than fading in place. One transition per
+    /// flank, because each flank's notch is on the opposite side.
+    private static var slideOutOfNotchLeading: AnyTransition {
         .move(edge: .trailing)
+    }
+
+    private static var slideOutOfNotchTrailing: AnyTransition {
+        .move(edge: .leading)
     }
 
     /// The band the physical notch covers: a usable slot on each side of it and
     /// dead space in the middle. The surface is centred on the notch, so the
-    /// two flanks are equal — the trailing one is deliberately left empty.
+    /// two flanks are equal — media on the leading one, pomodoro on the
+    /// trailing one.
     private var topStrip: some View {
-        notchBand(alignment: .leading) {
+        notchBand {
             topLeading()
                 // Same stagger as the content slot, so the media controls and
                 // the columns below them arrive as one.
                 .transition(Self.slotFade)
+        } trailing: {
+            topTrailing()
+                .transition(Self.slotFade)
         }
     }
 
-    /// The notch's leading flank, the only part of the band anything may be
-    /// drawn in. The open surface's top strip and the collapsed chip both live
+    /// The notch's two flanks, the only parts of the band anything may be
+    /// drawn in. The open surface's top strip and the collapsed chips all live
     /// here, so the clip that keeps content out from under the notch — and
-    /// hides the chip while it is behind it — is written once.
-    private func notchBand<Slot: View>(
-        alignment: Alignment,
+    /// hides a chip while it is behind it — is written once.
+    ///
+    /// Each slot hugs the notch: the leading flank aligns its content
+    /// trailing, the trailing flank leading. The open strips fill their flank
+    /// anyway, so the alignment only ever decides where a chip sits.
+    private func notchBand<Leading: View, Trailing: View>(
         overhang: CGFloat = 0,
-        @ViewBuilder slot: () -> Slot
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
     ) -> some View {
-        let slot = slot()
+        let leading = leading()
+        let trailing = trailing()
         return GeometryReader { proxy in
+            let flank = flankWidth(in: proxy.size.width) + overhang
             HStack(spacing: 0) {
-                slot
-                    .frame(
-                        width: flankWidth(in: proxy.size.width) + overhang,
-                        alignment: alignment
-                    )
+                leading.frame(width: flank, alignment: .trailing)
                 Spacer(minLength: 0)
+                trailing.frame(width: flank, alignment: .leading)
             }
-            // A static mask on the band, not `.clipped()` on the slot: the
-            // slide transition lives inside the slot's modifier chain and its
-            // offset could paint past a clip that animates with it — on
-            // hardware the chip's edge showed on the far side of the notch
+            // A static mask on the band, not `.clipped()` on the slots: the
+            // slide transitions live inside the slots' modifier chains and
+            // their offsets could paint past a clip that animates with them —
+            // on hardware the chip's edge showed on the far side of the notch
             // mid-slide. The band itself never transitions, so a mask here
             // bounds the finished rendering no matter what moves inside.
-            .mask(alignment: .leading) {
-                Rectangle()
-                    .frame(width: flankWidth(in: proxy.size.width) + overhang)
+            .mask {
+                HStack(spacing: 0) {
+                    Rectangle().frame(width: flank)
+                    Spacer(minLength: 0)
+                    Rectangle().frame(width: flank)
+                }
             }
         }
         .frame(height: notchSize.height)
@@ -205,21 +238,25 @@ extension View {
             }
     }
 
-    /// The now-playing chip: the same black and the same corner idiom, square
-    /// on the three edges it shares with something — the screen top, and the
-    /// notch on its trailing side — and rounded only on the outer bottom
-    /// corner it turns back on.
+    /// A notch chip: the same black and the same corner idiom, square on the
+    /// three edges it shares with something — the screen top, and the notch on
+    /// whichever side `notchEdge` names — and rounded only on the outer bottom
+    /// corner it turns back on. The now-playing chip keeps the notch on its
+    /// trailing side; the pomodoro chip mirrors it.
     ///
     /// Deliberately lighter than `notchSurface`: no border, no shadow. The chip
     /// lives *inside* the notch band rather than hanging below it, and the
     /// hardware notch it must read as an extension of casts neither — a
     /// hairline would draw a seam down the junction, and a shadow would be cut
     /// off by the clip that hides the chip behind the notch anyway.
-    func notchChipSurface(cornerRadius: CGFloat = 12) -> some View {
+    func notchChipSurface(
+        cornerRadius: CGFloat = 12,
+        notchEdge: HorizontalEdge = .trailing
+    ) -> some View {
         let shape = UnevenRoundedRectangle(
             topLeadingRadius: 0,
-            bottomLeadingRadius: cornerRadius,
-            bottomTrailingRadius: 0,
+            bottomLeadingRadius: notchEdge == .trailing ? cornerRadius : 0,
+            bottomTrailingRadius: notchEdge == .leading ? cornerRadius : 0,
             topTrailingRadius: 0
         )
         return background(.black).clipShape(shape)

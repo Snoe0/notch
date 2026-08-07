@@ -12,6 +12,7 @@ public final class NotchController {
     private let todos = TodoStore(directory: TodoStore.defaultDirectory)
     private let media = MediaController()
     private let popouts = PopoutPresenter()
+    private let pomodoro = PomodoroTimer()
     private var panel: NotchPanel?
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
@@ -36,6 +37,7 @@ public final class NotchController {
                 store: store,
                 todos: todos,
                 media: media,
+                pomodoro: pomodoro,
                 notchSize: geometry.notchRect.size
             )
         )
@@ -54,6 +56,7 @@ public final class NotchController {
             .store(in: &cancellables)
 
         watchForPlayback()
+        watchForPomodoroCompletions()
         watchForClicks()
         watchForKeyLoss()
         watchForEscape()
@@ -103,6 +106,15 @@ public final class NotchController {
                 guard let self else { return }
                 self.popouts.playbackChanged(to: nowPlaying, while: self.machine.state)
             }
+            .store(in: &cancellables)
+    }
+
+    /// A finished work or break interval gets a system sound and nothing more:
+    /// `NSSound` needs no entitlement and no prompt, unlike user
+    /// notifications, and this app asks for zero permissions.
+    private func watchForPomodoroCompletions() {
+        pomodoro.phaseCompletions
+            .sink { _ in NSSound(named: "Glass")?.play() }
             .store(in: &cancellables)
     }
 
@@ -219,16 +231,29 @@ private struct NotchRoot: View {
     let store: ScratchpadStore
     let todos: TodoStore
     @ObservedObject var media: MediaController
+    @ObservedObject var pomodoro: PomodoroTimer
     let notchSize: CGSize
+
+    /// The pomodoro chip mirrors the now-playing lozenge but needs no
+    /// presenter: it has no expiry and no announcement policy — it is up
+    /// exactly while the timer runs, and the chrome already ignores it
+    /// whenever the panel is open.
+    private var pomodoroChip: PomodoroChip? {
+        guard pomodoro.isRunning else { return nil }
+        return PomodoroChip(phase: pomodoro.phase, remaining: pomodoro.remaining)
+    }
 
     var body: some View {
         NotchChrome(
             state: machine.state,
             notchSize: notchSize,
             popout: popouts.popout,
-            artwork: media.artwork
+            artwork: media.artwork,
+            pomodoroChip: pomodoroChip
         ) {
             MediaControlsView(media: media)
+        } topTrailing: {
+            PomodoroControlsView(timer: pomodoro)
         } content: {
             PanelContentView(
                 todos: todos,
