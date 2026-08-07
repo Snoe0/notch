@@ -24,6 +24,10 @@ Previous milestone plans live in git history of this file.
 - [x] Pomodoro timer: right-flank strip + collapsed chip sliding from the notch's right edge, Glass sound on phase end — `4b9d3ce`
 - [x] Settings window (menu bar → Settings…, Cmd-,): feature toggles, flank/column layout, notes font (replaces the in-notes "Aa" control) — `5b74f57`
 
+## Wave 4 — official releases (2026-08-07)
+
+- [x] Developer ID release pipeline: entitlements + usage string, opt-in signing in the scripts, notarize.sh, tag-triggered release workflow with provenance attestation, RELEASING.md — `5b3c737`
+
 ## Wrap-up
 
 - [x] Full `swift test` pass after all merges — 149/149
