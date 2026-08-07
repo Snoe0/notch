@@ -80,6 +80,7 @@ enum ScratchpadPalette {
 struct ScratchpadTextView: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    let font: NSFont
     let shouldFocus: Bool
     let onEditingChange: (Bool) -> Void
 
@@ -93,7 +94,7 @@ struct ScratchpadTextView: NSViewRepresentable {
         textView.isSelectable = true
         textView.allowsUndo = true
         textView.drawsBackground = false
-        textView.font = .systemFont(ofSize: 13)
+        textView.font = font
         textView.textColor = .white
         textView.insertionPointColor = .white
         // Zero both so the placeholder origin above is simply (0, 0).
@@ -133,6 +134,13 @@ struct ScratchpadTextView: NSViewRepresentable {
         guard let textView = scroll.documentView as? PlaceholderTextView else { return }
         context.coordinator.parent = self
 
+        // A font switch restyles through the same markup pass as an edit, so
+        // the new face lands on existing text together with its highlights,
+        // underlines, and links rather than through a second attribute path.
+        if textView.font != font {
+            textView.font = font
+            context.coordinator.applyMarkup(to: textView)
+        }
         if textView.string != text {
             textView.string = text
             context.coordinator.applyMarkup(to: textView)
