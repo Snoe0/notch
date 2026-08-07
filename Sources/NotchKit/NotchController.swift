@@ -13,6 +13,8 @@ public final class NotchController {
     private let media = MediaController()
     private let popouts = PopoutPresenter()
     private let pomodoro = PomodoroTimer()
+    private let notesPopout = NotesPopoutPresenter()
+    private var notesWindow: NotesPopoutWindowController?
     private var panel: NotchPanel?
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
@@ -38,12 +40,14 @@ public final class NotchController {
                 todos: todos,
                 media: media,
                 pomodoro: pomodoro,
+                notesPopout: notesPopout,
                 notchSize: geometry.notchRect.size
             )
         )
         panel.setInteractive(false)
         panel.orderFrontRegardless()
         self.panel = panel
+        notesWindow = NotesPopoutWindowController(presenter: notesPopout, store: store)
 
         cursor.activeRect = geometry.collapsedHoverRect
         cursor.onChange = { [weak self] inside in
@@ -56,6 +60,7 @@ public final class NotchController {
             .store(in: &cancellables)
 
         watchForPlayback()
+        watchForNotesPopout()
         watchForPomodoroCompletions()
         watchForClicks()
         watchForKeyLoss()
@@ -105,6 +110,26 @@ public final class NotchController {
             .sink { [weak self] nowPlaying in
                 guard let self else { return }
                 self.popouts.playbackChanged(to: nowPlaying, while: self.machine.state)
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Shows or hides the floating notes window as the notes change host, and
+    /// flushes the scratchpad on every switch: the debounce must never be the
+    /// only thing holding an edit while its editor is being torn down. The
+    /// sketch flushes itself from the view (`onDisappear`), same as on panel
+    /// collapse.
+    private func watchForNotesPopout() {
+        notesPopout.$isPoppedOut
+            .dropFirst()
+            .sink { [weak self] isPoppedOut in
+                guard let self else { return }
+                if isPoppedOut {
+                    self.notesWindow?.show()
+                } else {
+                    self.notesWindow?.hide()
+                }
+                Task { await self.store.flush() }
             }
             .store(in: &cancellables)
     }
@@ -232,6 +257,7 @@ private struct NotchRoot: View {
     let todos: TodoStore
     @ObservedObject var media: MediaController
     @ObservedObject var pomodoro: PomodoroTimer
+    let notesPopout: NotesPopoutPresenter
     let notchSize: CGSize
 
     /// The pomodoro chip mirrors the now-playing lozenge but needs no
@@ -258,6 +284,7 @@ private struct NotchRoot: View {
             PanelContentView(
                 todos: todos,
                 scratchpad: store,
+                notesPopout: notesPopout,
                 isPinned: machine.state == .pinned
             )
         }

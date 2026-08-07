@@ -7,13 +7,20 @@ public struct PanelContentView: View {
     /// Passed straight through: each column observes the store it draws.
     let todos: TodoStore
     let scratchpad: ScratchpadStore
+    let notesPopout: NotesPopoutPresenter
     let isPinned: Bool
 
     private static let todoColumnFraction: CGFloat = 0.4
 
-    public init(todos: TodoStore, scratchpad: ScratchpadStore, isPinned: Bool) {
+    public init(
+        todos: TodoStore,
+        scratchpad: ScratchpadStore,
+        notesPopout: NotesPopoutPresenter,
+        isPinned: Bool
+    ) {
         self.todos = todos
         self.scratchpad = scratchpad
+        self.notesPopout = notesPopout
         self.isPinned = isPinned
     }
 
@@ -23,7 +30,7 @@ public struct PanelContentView: View {
                 TodoListView(store: todos)
                     .frame(width: proxy.size.width * Self.todoColumnFraction)
                 divider
-                ScratchpadView(store: scratchpad, isPinned: isPinned)
+                ScratchpadView(store: scratchpad, popout: notesPopout, isPinned: isPinned)
             }
         }
     }

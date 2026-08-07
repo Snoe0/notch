@@ -2,12 +2,15 @@ import SwiftUI
 
 public struct ScratchpadView: View {
     @ObservedObject var store: ScratchpadStore
+    @ObservedObject var popout: NotesPopoutPresenter
     @StateObject private var fontSetting = ScratchpadFontSetting()
     @StateObject private var sketchStore: SketchStore
     /// Deliberately not persisted: the panel always reopens on the notes.
     @State private var mode: Mode = .text
     @State private var ink: SketchInk = .white
     let isPinned: Bool
+    /// True in the floating window host, false in the panel column.
+    let isPopoutWindow: Bool
 
     private enum Mode {
         case text
@@ -16,16 +19,27 @@ public struct ScratchpadView: View {
 
     private static let textSize: CGFloat = 13
 
-    public init(store: ScratchpadStore, isPinned: Bool) {
+    public init(
+        store: ScratchpadStore,
+        popout: NotesPopoutPresenter,
+        isPinned: Bool,
+        isPopoutWindow: Bool = false
+    ) {
         self.store = store
+        self.popout = popout
         self.isPinned = isPinned
+        self.isPopoutWindow = isPopoutWindow
         // The sketch lives beside the markdown, in the same folder.
         _sketchStore = StateObject(wrappedValue: SketchStore(directory: store.directoryURL))
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            editor
+            if isDisplacedByPopout {
+                poppedOutNotice
+            } else {
+                editor
+            }
             if let error = saveError {
                 banner(error)
             }
@@ -33,6 +47,15 @@ public struct ScratchpadView: View {
         .padding(.horizontal, 18)
         .padding(.top, 10)
         .padding(.bottom, 14)
+    }
+
+    /// The panel column steps aside while the floating window owns the notes.
+    /// A placeholder rather than a second live editor: two text views on one
+    /// store would duel over first responder and race their edits. The view
+    /// itself stays in the tree, so its sketch store keeps watching the file
+    /// and returns already synced with whatever the window wrote.
+    private var isDisplacedByPopout: Bool {
+        popout.isPoppedOut && !isPopoutWindow
     }
 
     /// Either column face — typed notes or the sketch canvas — under the one
@@ -94,9 +117,51 @@ public struct ScratchpadView: View {
                 inkPicker
                 clearButton
             }
+            if !isPopoutWindow {
+                popOutButton
+            }
             sketchToggle
             fontMenu
         }
+    }
+
+    /// Sends the notes into their own floating window, pinned above other
+    /// windows. Only the panel host shows it — the window's way back is its
+    /// close box. Plain and never focusable, like the rest of the cluster.
+    private var popOutButton: some View {
+        Button {
+            popout.popOut()
+        } label: {
+            Image(systemName: "pin")
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 20, height: 16)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .foregroundStyle(.white.opacity(0.35))
+        .help("Pin notes above other windows")
+    }
+
+    /// What the panel column shows while the notes are popped out: a quiet
+    /// note and the way back.
+    private var poppedOutNotice: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "pin")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.25))
+            Text("notes are popped out")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.35))
+            Button("bring back") {
+                popout.returnToPanel()
+            }
+            .buttonStyle(.plain)
+            .focusable(false)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.6))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// A small "Aa" in the notes' top-right corner that picks the typeface.
