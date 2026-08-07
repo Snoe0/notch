@@ -68,6 +68,22 @@ private let afterDebounce = Duration.milliseconds(200)
     #expect(store.text == "what I am typing right now")
 }
 
+@Test @MainActor func formattingMarkersAndLinksSurviveARelaunch() async throws {
+    // Styling is persisted as plain markers inside the markdown string, so a
+    // round trip through disk must preserve them byte for byte.
+    let dir = try TemporaryDirectory()
+    let noted = "call ==Ann== about the <u>rent</u> via https://example.com"
+
+    let store = ScratchpadStore(directory: dir.url, debounce: fastDebounce)
+    store.text = noted
+    await store.flush()
+
+    let relaunched = ScratchpadStore(directory: dir.url, debounce: fastDebounce)
+    #expect(relaunched.text == noted)
+    #expect(ScratchpadMarkup.markupSpans(in: relaunched.text).count == 2)
+    #expect(ScratchpadMarkup.linkSpans(in: relaunched.text).count == 1)
+}
+
 @Test @MainActor func reportsAnErrorWhenTheDirectoryCannotBeUsed() async throws {
     // A path under an existing *file* can never be created as a directory.
     let dir = try TemporaryDirectory()

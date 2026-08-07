@@ -13,6 +13,26 @@ final class PlaceholderTextView: NSTextView {
         didSet { needsDisplay = true }
     }
 
+    /// Cmd-U / Cmd-Shift-H land here: the panel has no Format menu, so the
+    /// key equivalents are handled in the view itself.
+    var onToggleStyle: ((ScratchpadStyle) -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let style = formattingStyle(for: event), let onToggleStyle {
+            onToggleStyle(style)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    private func formattingStyle(for event: NSEvent) -> ScratchpadStyle? {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if modifiers == .command, key == "u" { return .underline }
+        if modifiers == [.command, .shift], key == "h" { return .highlight }
+        return nil
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard string.isEmpty, !placeholder.isEmpty else { return }
@@ -45,6 +65,18 @@ struct FocusRequestEdge {
     }
 }
 
+/// Colors for the markup layer, all chosen against the panel's dark
+/// background. The highlight is a translucent yellow rather than a solid
+/// highlighter fill: at 0.3 opacity over the dark panel it reads as a dim
+/// amber band, so the white text on top keeps roughly a 10:1 contrast ratio
+/// instead of vanishing into a bright field.
+enum ScratchpadPalette {
+    static let text = NSColor.white
+    static let marker = NSColor.white.withAlphaComponent(0.3)
+    static let highlight = NSColor.systemYellow.withAlphaComponent(0.3)
+    static let link = NSColor(srgbRed: 0.45, green: 0.72, blue: 1.0, alpha: 1.0)
+}
+
 struct ScratchpadTextView: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
@@ -68,6 +100,15 @@ struct ScratchpadTextView: NSViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
         textView.placeholder = placeholder
+        textView.linkTextAttributes = [
+            .foregroundColor: ScratchpadPalette.link,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .cursor: NSCursor.pointingHand,
+        ]
+        textView.onToggleStyle = { [weak textView] style in
+            guard let textView else { return }
+            context.coordinator.toggle(style, in: textView)
+        }
 
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -94,6 +135,7 @@ struct ScratchpadTextView: NSViewRepresentable {
 
         if textView.string != text {
             textView.string = text
+            context.coordinator.applyMarkup(to: textView)
         }
         textView.placeholder = placeholder
 
@@ -131,9 +173,97 @@ struct ScratchpadTextView: NSViewRepresentable {
             window.makeFirstResponder(textView)
         }
 
+        /// Applies the markup edit through `shouldChangeText`/`didChangeText`
+        /// so the toggle participates in undo like any typed edit.
+        @MainActor
+        func toggle(_ style: ScratchpadStyle, in textView: NSTextView) {
+            let selection = textView.selectedRange()
+            guard
+                let edit = ScratchpadMarkup.toggle(style, in: textView.string, selection: selection),
+                textView.shouldChangeText(in: edit.replacementRange, replacementString: edit.replacement)
+            else { return }
+            textView.textStorage?.replaceCharacters(in: edit.replacementRange, with: edit.replacement)
+            textView.didChangeText()
+            textView.setSelectedRange(edit.selectionAfter)
+        }
+
+        /// Re-derives every visual attribute from the plain text: highlight
+        /// and underline spans from their markers, dimmed markers, and
+        /// clickable links. Attributes are display-only — the persisted value
+        /// is always just `textView.string`.
+        @MainActor
+        func applyMarkup(to textView: NSTextView) {
+            // Never restyle mid-IME-composition; it would fight the input method.
+            guard !textView.hasMarkedText(), let storage = textView.textStorage else { return }
+            storage.beginEditing()
+            resetAttributes(of: storage, font: textView.font)
+            for span in ScratchpadMarkup.markupSpans(in: storage.string) {
+                apply(span, to: storage)
+            }
+            for link in ScratchpadMarkup.linkSpans(in: storage.string) {
+                storage.addAttribute(.link, value: link.url, range: link.range)
+            }
+            storage.endEditing()
+            textView.typingAttributes = [
+                .font: textView.font ?? NSFont.systemFont(ofSize: 13),
+                .foregroundColor: ScratchpadPalette.text,
+            ]
+        }
+
+        private func resetAttributes(of storage: NSTextStorage, font: NSFont?) {
+            let whole = NSRange(location: 0, length: storage.length)
+            storage.removeAttribute(.backgroundColor, range: whole)
+            storage.removeAttribute(.underlineStyle, range: whole)
+            storage.removeAttribute(.link, range: whole)
+            storage.addAttribute(.foregroundColor, value: ScratchpadPalette.text, range: whole)
+            storage.addAttribute(.font, value: font ?? NSFont.systemFont(ofSize: 13), range: whole)
+        }
+
+        private func apply(_ span: MarkupSpan, to storage: NSTextStorage) {
+            switch span.style {
+            case .highlight:
+                storage.addAttribute(.backgroundColor, value: ScratchpadPalette.highlight, range: span.innerRange)
+            case .underline:
+                storage.addAttribute(
+                    .underlineStyle,
+                    value: NSUnderlineStyle.single.rawValue,
+                    range: span.innerRange
+                )
+            }
+            for marker in markerRanges(of: span) {
+                storage.addAttribute(.foregroundColor, value: ScratchpadPalette.marker, range: marker)
+            }
+        }
+
+        private func markerRanges(of span: MarkupSpan) -> [NSRange] {
+            [
+                NSRange(
+                    location: span.fullRange.location,
+                    length: span.innerRange.location - span.fullRange.location
+                ),
+                NSRange(
+                    location: NSMaxRange(span.innerRange),
+                    length: NSMaxRange(span.fullRange) - NSMaxRange(span.innerRange)
+                ),
+            ]
+        }
+
+        /// Opens links directly: the panel is non-activating, so routing
+        /// through the default handler is not left to chance.
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            guard let url = url(from: link) else { return false }
+            NSWorkspace.shared.open(url)
+            return true
+        }
+
+        private func url(from link: Any) -> URL? {
+            (link as? URL) ?? (link as? String).flatMap(URL.init(string:))
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
+            applyMarkup(to: textView)
             textView.needsDisplay = true      // repaint so the placeholder clears
         }
 
