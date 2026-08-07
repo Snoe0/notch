@@ -15,7 +15,15 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
     private let topLeading: () -> TopLeading
     private let content: () -> Content
 
-    static var animation: Animation { .spring(response: 0.34, dampingFraction: 0.8) }
+    /// Expanding rides a gentle spring with just enough give to settle softly;
+    /// collapsing is a touch quicker and strictly eased — the panel is hover
+    /// UI, so it should arrive with a little life and leave without ceremony.
+    static var expand: Animation { .spring(response: 0.34, dampingFraction: 0.78) }
+    static var collapse: Animation { .easeIn(duration: 0.22) }
+
+    /// The chip's slide keeps its own spring, independent of the open/close
+    /// pair above, so tuning the panel never changes how the chip emerges.
+    static var chipSlide: Animation { .spring(response: 0.34, dampingFraction: 0.8) }
 
     /// The artwork travels beside the popout rather than inside it, because it
     /// is fetched separately and often arrives once the chip is already up.
@@ -47,18 +55,33 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(Self.animation, value: state)
-        .animation(Self.animation, value: popout)
+        // The animation is picked per direction: the branch below re-evaluates
+        // with the *new* state, so opening lands on the spring and closing on
+        // the ease — one symmetric transition, two feels.
+        .animation(state.isOpen ? Self.expand : Self.collapse, value: state)
+        .animation(Self.chipSlide, value: popout)
     }
 
     private static var dropIn: AnyTransition {
         .scale(scale: 0.9, anchor: .top).combined(with: .opacity)
     }
 
+    /// The chrome leads and the content follows: on expand the columns fade in
+    /// a beat after the black surface starts growing, and on collapse they
+    /// clear out quickly so no text is caught mid-shrink. The stagger is why
+    /// these carry their own animations instead of riding the transaction's.
+    private static var slotFade: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.animation(.easeOut(duration: 0.2).delay(0.07)),
+            removal: .opacity.animation(.easeIn(duration: 0.1))
+        )
+    }
+
     private var surface: some View {
         VStack(spacing: 0) {
             topStrip
             content()
+                .transition(Self.slotFade)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minWidth: notchSize.width)
@@ -110,7 +133,12 @@ public struct NotchChrome<TopLeading: View, Content: View>: View {
     /// dead space in the middle. The surface is centred on the notch, so the
     /// two flanks are equal — the trailing one is deliberately left empty.
     private var topStrip: some View {
-        notchBand(alignment: .leading) { topLeading() }
+        notchBand(alignment: .leading) {
+            topLeading()
+                // Same stagger as the content slot, so the media controls and
+                // the columns below them arrive as one.
+                .transition(Self.slotFade)
+        }
     }
 
     /// The notch's leading flank, the only part of the band anything may be
