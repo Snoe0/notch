@@ -188,6 +188,36 @@ private actor FakeMediaScripting: MediaScripting {
     #expect(controller.nowPlaying == nil)
 }
 
+// MARK: - Opening the source app
+
+@Test @MainActor func opensTheAppTheStripIsShowing() async {
+    let scripting = FakeMediaScripting([
+        .music: paused(.music, "Blue in Green"),
+        .spotify: playing(.spotify, "Teardrop"),
+    ])
+    var opened: [MediaApp] = []
+    let controller = MediaController(scripting: scripting, interval: fastInterval) {
+        opened.append($0)
+    }
+    await controller.refresh()
+
+    controller.openSourceApp()
+
+    #expect(opened == [.spotify])
+}
+
+@Test @MainActor func opensNothingWhileIdle() async {
+    var opened: [MediaApp] = []
+    let controller = MediaController(scripting: FakeMediaScripting(), interval: fastInterval) {
+        opened.append($0)
+    }
+    await controller.refresh()
+
+    controller.openSourceApp()
+
+    #expect(opened.isEmpty)
+}
+
 // MARK: - Polling
 
 @Test @MainActor func pollingPicksUpChangesUntilItIsStopped() async throws {

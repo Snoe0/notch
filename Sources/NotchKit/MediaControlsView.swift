@@ -12,12 +12,7 @@ public struct MediaControlsView: View {
 
     public var body: some View {
         HStack(spacing: 6) {
-            if let artwork = media.artwork {
-                ArtworkView(image: artwork, side: 22)
-            }
-            if let nowPlaying = media.nowPlaying {
-                TrackLabel(title: nowPlaying.title, artist: nowPlaying.artist, size: 11)
-            }
+            nowPlayingArea
             Spacer(minLength: 4)
             transport
         }
@@ -30,6 +25,24 @@ public struct MediaControlsView: View {
 
     /// Idle means no media app had anything to report on the last poll.
     private var isIdle: Bool { media.nowPlaying == nil }
+
+    /// The passive half of the strip — cover and track label — doubling as one
+    /// click target that brings the source app forward. A gesture on its own
+    /// subview rather than a button over the row, so it can never take focus
+    /// and the transport buttons beside it keep their own clicks. Empty while
+    /// idle, so there is nothing to click when there is nothing to open.
+    private var nowPlayingArea: some View {
+        HStack(spacing: 6) {
+            if let artwork = media.artwork {
+                ArtworkView(image: artwork, side: 22)
+            }
+            if let nowPlaying = media.nowPlaying {
+                TrackLabel(title: nowPlaying.title, artist: nowPlaying.artist, size: 11)
+            }
+        }
+        .contentShape(.rect)
+        .onTapGesture { media.openSourceApp() }
+    }
 
     private var transport: some View {
         HStack(spacing: 1) {

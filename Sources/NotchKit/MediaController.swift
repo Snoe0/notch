@@ -60,6 +60,9 @@ public final class MediaController: ObservableObject {
 
     private let scripting: MediaScripting
     private let interval: Duration
+    /// How `openSourceApp` reaches the Dock — `NSWorkspace` in production, a
+    /// recorder in tests, the same seam idea as `scripting`.
+    private let openApp: @MainActor (MediaApp) -> Void
     private let playbackSubject = PassthroughSubject<NowPlaying?, Never>()
     private var pollTask: Task<Void, Never>?
     /// Only ever written on the main actor, during `init`; `nonisolated` so
@@ -79,10 +82,12 @@ public final class MediaController: ObservableObject {
 
     public init(
         scripting: MediaScripting = OsascriptMediaScripting(),
-        interval: Duration = .seconds(2)
+        interval: Duration = .seconds(2),
+        openApp: (@MainActor (MediaApp) -> Void)? = nil
     ) {
         self.scripting = scripting
         self.interval = interval
+        self.openApp = openApp ?? Self.activateInWorkspace
         observePlaybackNotifications()
     }
 
@@ -338,5 +343,24 @@ public final class MediaController: ObservableObject {
         guard let target = nowPlaying?.source else { return }
         await scripting.send(command, to: target)
         await refresh()
+    }
+
+    // MARK: - Opening the source app
+
+    /// Brings the app the strip is showing to the front: the click action of
+    /// the strip's passive parts (artwork, title). A no-op while idle.
+    public func openSourceApp() {
+        guard let source = nowPlaying?.source else { return }
+        openApp(source)
+    }
+
+    /// The production opener. `openApplication` activates a running app and
+    /// launches a quit one, and neither path activates Notch itself — the
+    /// panel stays the non-activating overlay it is.
+    static func activateInWorkspace(_ app: MediaApp) {
+        guard let url = NSWorkspace.shared
+            .urlForApplication(withBundleIdentifier: app.bundleIdentifier)
+        else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 }
