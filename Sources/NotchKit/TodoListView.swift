@@ -80,7 +80,9 @@ private struct TodoRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        // First-baseline alignment keeps the checkbox on the opening line when
+        // a long title wraps, instead of drifting to the row's vertical center.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             checkbox
             text
             Spacer(minLength: 4)
@@ -105,11 +107,12 @@ private struct TodoRow: View {
     }
 
     private var text: some View {
+        // Long titles wrap instead of truncating; strikethrough is applied to
+        // the whole Text, so it carries across every wrapped line.
         Text(item.text)
             .strikethrough(item.isDone)
             .foregroundStyle(.white.opacity(item.isDone ? 0.35 : 0.9))
-            .lineLimit(1)
-            .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func iconButton(
