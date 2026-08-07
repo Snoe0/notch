@@ -3,25 +3,52 @@ import SwiftUI
 public struct ScratchpadView: View {
     @ObservedObject var store: ScratchpadStore
     @StateObject private var fontSetting = ScratchpadFontSetting()
+    @StateObject private var sketchStore: SketchStore
+    /// Deliberately not persisted: the panel always reopens on the notes.
+    @State private var mode: Mode = .text
+    @State private var ink: SketchInk = .white
     let isPinned: Bool
+
+    private enum Mode {
+        case text
+        case sketch
+    }
 
     private static let textSize: CGFloat = 13
 
     public init(store: ScratchpadStore, isPinned: Bool) {
         self.store = store
         self.isPinned = isPinned
+        // The sketch lives beside the markdown, in the same folder.
+        _sketchStore = StateObject(wrappedValue: SketchStore(directory: store.directoryURL))
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            notes
-            if let error = store.saveError {
+            editor
+            if let error = saveError {
                 banner(error)
             }
         }
         .padding(.horizontal, 18)
         .padding(.top, 10)
         .padding(.bottom, 14)
+    }
+
+    /// Either column face — typed notes or the sketch canvas — under the one
+    /// corner-control cluster, so the controls never move when the mode flips.
+    private var editor: some View {
+        Group {
+            switch mode {
+            case .text: notes
+            case .sketch: sketchCanvas
+            }
+        }
+        .overlay(alignment: .topTrailing) { cornerControls }
+    }
+
+    private var saveError: String? {
+        store.saveError ?? sketchStore.saveError
     }
 
     private var notes: some View {
@@ -32,7 +59,44 @@ public struct ScratchpadView: View {
             shouldFocus: isPinned,
             onEditingChange: { store.isEditing = $0 }
         )
-        .overlay(alignment: .topTrailing) { fontMenu }
+    }
+
+    private var sketchCanvas: some View {
+        SketchCanvasView(
+            drawing: sketchStore.drawing,
+            ink: ink,
+            onStrokeBegan: { sketchStore.isDrawing = true },
+            onStrokeCommitted: { stroke in
+                sketchStore.drawing.strokes.append(stroke)
+                sketchStore.isDrawing = false
+            }
+        )
+        // The controller flushes the text stores when the panel closes, but
+        // the sketch store lives here in the view. Flushing as the canvas
+        // leaves the tree covers both exits — switching back to text and the
+        // panel collapsing — and the task holds the store, so a pending write
+        // lands even after the panel content is torn down.
+        .onDisappear {
+            let sketchStore = sketchStore
+            Task { await sketchStore.flush() }
+        }
+    }
+
+    // MARK: - Corner controls
+
+    /// The cluster in the notes' top-right corner: ink swatches and clear
+    /// while sketching, then the sketch toggle and the font menu. Same rule
+    /// as the media transport for every one of them: the notes text is the
+    /// panel's only focusable control.
+    private var cornerControls: some View {
+        HStack(spacing: 8) {
+            if mode == .sketch {
+                inkPicker
+                clearButton
+            }
+            sketchToggle
+            fontMenu
+        }
     }
 
     /// A small "Aa" in the notes' top-right corner that picks the typeface.
@@ -58,11 +122,63 @@ public struct ScratchpadView: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        // Same rule as the media transport: the notes text is the panel's
-        // only focusable control.
         .focusable(false)
         .foregroundStyle(.white.opacity(0.35))
         .help("Notes font")
+    }
+
+    /// Flips the column between typed notes and the sketch canvas. A plain
+    /// never-focusable button, so toggling modes cannot disturb the caret;
+    /// the icon brightens while the canvas is up.
+    private var sketchToggle: some View {
+        Button {
+            mode = mode == .sketch ? .text : .sketch
+        } label: {
+            Image(systemName: "scribble")
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 20, height: 16)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .foregroundStyle(.white.opacity(mode == .sketch ? 0.8 : 0.35))
+        .help(mode == .sketch ? "Back to text" : "Sketch")
+    }
+
+    /// The three inks as swatches; the chosen one shows at full strength.
+    private var inkPicker: some View {
+        HStack(spacing: 5) {
+            ForEach(SketchInk.allCases) { candidate in
+                Button {
+                    ink = candidate
+                } label: {
+                    Circle()
+                        .fill(candidate.swatchColor.opacity(ink == candidate ? 1 : 0.4))
+                        .frame(width: 7, height: 7)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .help("\(candidate.displayName) ink")
+            }
+        }
+        .frame(height: 16)
+    }
+
+    private var clearButton: some View {
+        Button {
+            guard !sketchStore.drawing.isEmpty else { return }
+            sketchStore.drawing = .empty
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 16, height: 16)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .foregroundStyle(.white.opacity(0.35))
+        .help("Clear sketch")
     }
 
     private func banner(_ message: String) -> some View {
