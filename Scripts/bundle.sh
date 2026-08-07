@@ -20,5 +20,15 @@ if [ ! -f Resources/AppIcon.icns ]; then
 fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
-codesign --force --sign - "$APP"
+# With SIGN_IDENTITY set (e.g. "Developer ID Application: Name (TEAMID)") the
+# app is signed for distribution: hardened runtime, a secure timestamp, and the
+# entitlements the app needs. Unset, the ad-hoc signature keeps dev builds
+# working as before.
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --options runtime --timestamp \
+    --entitlements Resources/Notch.entitlements \
+    --sign "$SIGN_IDENTITY" "$APP"
+else
+  codesign --force --sign - "$APP"
+fi
 echo "built $APP"

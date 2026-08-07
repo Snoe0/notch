@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Notch drives Music and Spotify over AppleScript (osascript); a
+         hardened-runtime build may not send Apple events without this. No
+         sandbox, and nothing else is needed: hover detection reads
+         NSEvent.mouseLocation and files live under ~/Documents. -->
+    <key>com.apple.security.automation.apple-events</key> <true/>
+</dict>
+</plist>

@@ -37,9 +37,12 @@ Download `Notch.dmg` from the
 [latest release](https://github.com/Snoe0/notch/releases/latest), open it,
 and drag Notch to Applications.
 
-Until notarized builds ship, the release DMG is ad-hoc signed, so Gatekeeper
-will refuse a plain double-click. Right-click Notch in Applications → **Open**,
-then confirm. That is only needed once.
+Release DMGs are signed with a Developer ID certificate and notarized by
+Apple, so a plain double-click works. (Releases from before notarized builds
+shipped were ad-hoc signed; for those, right-click Notch in Applications →
+**Open** once.) The first time the panel opens, macOS asks once per app for
+permission to control Music and Spotify — see
+[Permissions](#permissions).
 
 ## Build from source
 
@@ -51,6 +54,9 @@ open build/Notch.app
 
 `./Scripts/make-dmg.sh` wraps the bundled app into `build/Notch.dmg` with the
 usual drag-to-Applications layout.
+
+Official releases are cut from `v*` tags, which CI signs, notarizes, and
+publishes — see [docs/RELEASING.md](docs/RELEASING.md).
 
 Note that Launch at Login only works for a properly signed app in
 `/Applications`; `SMAppService.register()` fails for an ad-hoc build run from a

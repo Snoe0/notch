@@ -25,4 +25,10 @@ hdiutil create \
   "$DMG"
 
 rm -rf "$STAGE"
+
+# Sign the DMG itself when a distribution identity is set (same variable as
+# bundle.sh); unsigned DMGs are fine for local use.
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
+fi
 echo "built $DMG"
