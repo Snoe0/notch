@@ -8,6 +8,25 @@ private let fastInterval = Duration.milliseconds(10)
 /// Long enough for a fetch task spawned by the controller to finish.
 private let settleTime = Duration.milliseconds(50)
 
+/// Polls an asynchronous observable until it reaches the expected state.
+/// Fixed sleeps make these tests race a busy CI runner even when polling is
+/// working correctly.
+@MainActor
+private func eventually(
+    timeout: Duration = .seconds(1),
+    _ condition: () -> Bool
+) async throws -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+
+    repeat {
+        if condition() { return true }
+        try await Task.sleep(for: .milliseconds(10))
+    } while clock.now < deadline
+
+    return condition()
+}
+
 private func playing(_ app: MediaApp, _ title: String) -> MediaSnapshot {
     MediaSnapshot(app: app, title: title, artist: "Someone", isPlaying: true)
 }
@@ -225,12 +244,16 @@ private actor FakeMediaScripting: MediaScripting {
     let controller = MediaController(scripting: scripting, interval: fastInterval)
 
     controller.startPolling()
-    try await Task.sleep(for: .milliseconds(50))
-    #expect(controller.nowPlaying?.title == "Blue in Green")
+    let sawInitialTrack = try await eventually {
+        controller.nowPlaying?.title == "Blue in Green"
+    }
+    #expect(sawInitialTrack)
 
     await scripting.replace([.music: playing(.music, "So What")])
-    try await Task.sleep(for: .milliseconds(50))
-    #expect(controller.nowPlaying?.title == "So What")
+    let sawReplacementTrack = try await eventually {
+        controller.nowPlaying?.title == "So What"
+    }
+    #expect(sawReplacementTrack)
 
     // Let the tick that was already in flight when we stopped drain first.
     controller.stopPolling()
